@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// NextAuth.js required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Application models
+model User {
+  id            String         @id @default(cuid())
+  email         String?        @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  passwordHash  String?
+  role          String         @default("user")
+  points        Int            @default(0)
+  accounts      Account[]
+  sessions      Session[]
+  intents       Intent[]
+  transactions  Transaction[]
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  messages  Message[]
+  intents   Intent[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       // "user" | "assistant"
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+}
+
+model Intent {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  category       String
+  subcategory    String?
+  keyword        String
+  description    String        @db.Text
+  confidence     Float
+  isCommercial   Boolean       @default(true)
+  pointValue     Int           @default(0)
+  status         String        @default("active") // active | matched | expired
+  matches        Match[]
+  createdAt      DateTime      @default(now())
+  expiresAt      DateTime?
+
+  @@index([userId])
+  @@index([category])
+  @@index([status])
+}
+
+model Campaign {
+  id           String   @id @default(cuid())
+  title        String
+  description  String   @db.Text
+  category     String
+  keywords     String[]
+  budget       Int
+  spent        Int      @default(0)
+  costPerMatch Int
+  url          String?
+  siteName     String?
+  status       String   @default("active") // active | paused | completed
+  matches      Match[]
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+  @@index([status])
+}
+
+model Match {
+  id         String   @id @default(cuid())
+  intentId   String
+  intent     Intent   @relation(fields: [intentId], references: [id])
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  score      Float    @default(0) // matching score
+  reward     Int
+  status     String   @default("pending") // pending | accepted | rejected
+  createdAt  DateTime @default(now())
+
+  @@unique([intentId, campaignId])
+  @@index([status])
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // "earn" | "withdraw" | "convert"
+  amount    Int
+  balance   Int
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+// 카테고리 및 매칭 사이트 (분야별 사이트 리스트)
+model Category {
+  id              String     @id @default(cuid())
+  name            String
+  parentId        String?
+  parent          Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children        Category[] @relation("CategoryHierarchy")
+  basePointValue  Int        // 800(고) / 500(중) / 200(일반)
+  sites           Site[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([parentId])
+}
+
+model Site {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name       String
+  url        String   // 도메인 또는 전체 URL
+  isPremium  Boolean  @default(false) // 1순위 유명사이트
+  priority   Int      // 1, 2, 3
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([categoryId])
+}
