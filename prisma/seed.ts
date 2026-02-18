@@ -911,6 +911,62 @@ const categorySiteData = [
       },
     ],
   },
+  {
+    name: "비영리·기부·봉사",
+    basePointValue: 100,
+    subCategories: [
+      {
+        name: "국제 구호·아동 후원",
+        sites: [
+          { name: "굿네이버스", url: "goodneighbors.kr" },
+          { name: "월드비전", url: "worldvision.or.kr" },
+          { name: "유니세프", url: "unicef.or.kr" },
+          { name: "세이브더칠드런", url: "sc.or.kr" },
+          { name: "플랜코리아", url: "plankorea.or.kr" },
+        ],
+      },
+      {
+        name: "국내 복지·취약계층",
+        sites: [
+          { name: "사회복지공동모금회", url: "chest.or.kr" },
+          { name: "초록우산 어린이재단", url: "childfund.or.kr" },
+          { name: "대한적십자사", url: "redcross.or.kr" },
+          { name: "밀알복지재단", url: "miral.org" },
+          { name: "한국해비타트", url: "habitat.or.kr" },
+        ],
+      },
+      {
+        name: "환경·동물 보호",
+        sites: [
+          { name: "그린피스", url: "greenpeace.org/korea" },
+          { name: "WWF 한국", url: "wwfkorea.or.kr" },
+          { name: "동물자유연대", url: "animals.or.kr" },
+          { name: "환경운동연합", url: "kfem.or.kr" },
+          { name: "트리플래닛", url: "treeplanet.org" },
+        ],
+      },
+      {
+        name: "봉사활동·기부 플랫폼",
+        sites: [
+          { name: "1365 자원봉사포털", url: "1365.go.kr" },
+          { name: "해피빈", url: "happybean.naver.com" },
+          { name: "카카오같이가치", url: "together.kakao.com" },
+          { name: "기부나라", url: "giving.or.kr" },
+          { name: "볼런티어포털", url: "volunteer.or.kr" },
+        ],
+      },
+      {
+        name: "의료·질병·장애인 지원",
+        sites: [
+          { name: "한국백혈병어린이재단", url: "kclf.org" },
+          { name: "사랑의열매", url: "chest.or.kr" },
+          { name: "한국장애인재단", url: "herbnanum.org" },
+          { name: "푸르메재단", url: "purme.org" },
+          { name: "한국난치병재단", url: "raredisease.or.kr" },
+        ],
+      },
+    ],
+  },
 ];
 
 // ──────────────────────────────────────────────

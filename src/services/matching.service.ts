@@ -13,6 +13,7 @@ const CATEGORY_VALUE: Record<string, number> = {
   쇼핑: 0.55,
   음식: 0.5,
   지역정보: 0.5,
+  비영리: 0.4,
   취미: 0.45,
   기타: 0.3,
 };

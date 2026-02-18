@@ -53,6 +53,7 @@ export const INTENT_CATEGORIES = [
   "자동차",
   "취미",
   "지역정보",
+  "비영리",
   "기타",
 ] as const;
 

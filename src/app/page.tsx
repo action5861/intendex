@@ -178,30 +178,33 @@ export default function LandingPage() {
           <div className="flex flex-col lg:flex-row gap-16 items-center">
             <div className="flex-1 space-y-8">
               <h2 className="text-3xl md:text-5xl font-black leading-tight break-keep">
-                개인정보는 잠그고, <br />
-                <span className="text-blue-400">가치만 꺼냅니다</span>
+                당신의 개인정보는 <br />
+                <span className="text-blue-400">단 한 글자도 넘기지 않습니다</span>
               </h2>
-              
+              <p className="text-slate-400 text-lg mt-2 break-keep">
+                오직 익명화된 '의도'만 안전하게 거래됩니다.
+              </p>
+
               <div className="space-y-6">
                 <div className="flex gap-4">
                   <CheckCircle2 className="text-emerald-400 shrink-0" />
                   <div>
-                    <h4 className="font-bold text-lg">완전한 익명화</h4>
-                    <p className="text-slate-400 text-sm">신원 정보와 대화 내용은 완전히 분리되어 저장됩니다.</p>
+                    <h4 className="font-bold text-lg">개인정보 완전 차단</h4>
+                    <p className="text-slate-400 text-sm">이름, 연락처, 위치 등 신원 정보는 수집하지도, 저장하지도, 전달하지도 않습니다. 광고주에게 전달되는 것은 오직 익명 의도 데이터뿐입니다.</p>
                   </div>
                 </div>
                 <div className="flex gap-4">
                   <CheckCircle2 className="text-emerald-400 shrink-0" />
                   <div>
-                    <h4 className="font-bold text-lg">데이터 주권</h4>
-                    <p className="text-slate-400 text-sm">내 데이터의 진짜 주인은 '나'임을 기술적으로 보장합니다.</p>
+                    <h4 className="font-bold text-lg">내 데이터, 내가 주인</h4>
+                    <p className="text-slate-400 text-sm">데이터 삭제 요청 시 즉시 완전 삭제됩니다. 동의 없이는 어떤 데이터도 활용되지 않습니다. 데이터의 모든 권한은 당신에게 있습니다.</p>
                   </div>
                 </div>
                 <div className="flex gap-4">
                   <CheckCircle2 className="text-emerald-400 shrink-0" />
                   <div>
-                    <h4 className="font-bold text-lg">투명한 수익</h4>
-                    <p className="text-slate-400 text-sm">데이터 사용량 기반 정당한 보상 분배 시스템을 운영합니다.</p>
+                    <h4 className="font-bold text-lg">100% 투명한 보상</h4>
+                    <p className="text-slate-400 text-sm">내 의도 데이터가 언제, 어디서, 얼마나 활용되었는지 실시간으로 확인할 수 있습니다. 숨기는 것 없이, 정당한 가치를 돌려드립니다.</p>
                   </div>
                 </div>
               </div>
@@ -210,13 +213,14 @@ export default function LandingPage() {
             <div className="flex-1 bg-white/5 p-10 rounded-[40px] border border-white/10 backdrop-blur-sm">
               <h3 className="text-2xl font-bold mb-6 text-blue-400">Intendex = Intent + Index</h3>
               <p className="text-lg leading-relaxed text-slate-300 break-keep">
-                사람들의 '의도(Intent)'를 모아 인덱싱하여 <br />
-                누구나 자신의 데이터로 기본소득을 얻는 <br />
-                <span className="text-white font-bold underline decoration-blue-500 underline-offset-4">공정한 디지털 경제</span>를 실현하는 플랫폼입니다.
+                개인정보가 아닌, 오직 <span className="text-white font-bold">'의도(Intent)'</span>만 <br />
+                안전하게 인덱싱하여 거래합니다. <br />
+                당신이 누구인지는 모르지만, 무엇을 원하는지만 압니다. <br />
+                <span className="text-white font-bold underline decoration-blue-500 underline-offset-4">이것이 우리가 만드는 공정한 디지털 경제입니다.</span>
               </p>
               <div className="mt-8 pt-8 border-t border-white/10 flex items-center gap-4">
                 <ShieldCheck size={40} className="text-blue-400" />
-                <span className="text-sm text-slate-400 font-medium">개인정보보호법 가이드라인을 준수합니다.</span>
+                <span className="text-sm text-slate-400 font-medium">개인정보보호법 및 데이터 3법을 철저히 준수합니다.</span>
               </div>
             </div>
           </div>
