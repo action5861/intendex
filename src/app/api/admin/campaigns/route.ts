@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
+import { EmbeddingService } from "@/services/embedding.service";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -93,6 +95,18 @@ export async function POST(req: NextRequest) {
       siteName: siteName || null,
     },
   });
+
+  // 임베딩 생성 및 저장 (실패해도 캠페인 생성은 성공으로 처리)
+  try {
+    const text = EmbeddingService.buildCampaignText({ title, description, category, keywords });
+    const embedding = await EmbeddingService.embed(text);
+    const vectorStr = EmbeddingService.toVectorLiteral(embedding);
+    await prisma.$executeRaw(
+      Prisma.sql`UPDATE "Campaign" SET embedding = ${vectorStr}::vector WHERE id = ${campaign.id}`
+    );
+  } catch (err) {
+    console.error("[Campaign POST] 임베딩 생성 실패:", err);
+  }
 
   return NextResponse.json(campaign, { status: 201 });
 }

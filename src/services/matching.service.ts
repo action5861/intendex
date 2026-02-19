@@ -1,6 +1,14 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { EmbeddingService } from "./embedding.service";
 
-// ── 카테고리 가치 가중치 (광고 단가 기반) ──
+// ── 상수 ─────────────────────────────────────────────────────────────
+const VECTOR_TOP_N = 50;          // DB 단 1차 필터링: 코사인 유사도 상위 N개
+const HYBRID_MIN_SCORE = 0.4;     // 최종 하이브리드 점수 최소 임계값
+const VECTOR_WEIGHT = 0.40;       // α: 벡터 유사도 가중치
+const SEMANTIC_WEIGHT = 0.60;     // β: 비즈니스 시맨틱 가중치
+
+// ── 카테고리 가치 가중치 (광고 단가 기반) ────────────────────────────
 const CATEGORY_VALUE: Record<string, number> = {
   금융: 1.0,
   부동산: 1.0,
@@ -18,34 +26,18 @@ const CATEGORY_VALUE: Record<string, number> = {
   기타: 0.3,
 };
 
-// ── 검색 강도 시그널 키워드 ──
+// ── 검색 강도 시그널 키워드 ──────────────────────────────────────────
 const HIGH_INTENT_SIGNALS = [
-  "구매",
-  "구입",
-  "결제",
-  "주문",
-  "예약",
-  "가입",
-  "신청",
-  "견적",
-  "비교",
-  "추천",
-  "최저가",
-  "할인",
-  "쿠폰",
+  "구매", "구입", "결제", "주문", "예약",
+  "가입", "신청", "견적", "비교", "추천",
+  "최저가", "할인", "쿠폰",
 ];
 const MID_INTENT_SIGNALS = [
-  "알아보",
-  "찾아보",
-  "고민",
-  "후기",
-  "리뷰",
-  "평점",
-  "스펙",
-  "장단점",
+  "알아보", "찾아보", "고민", "후기",
+  "리뷰", "평점", "스펙", "장단점",
 ];
 
-// ── 타입 ──
+// ── 타입 ─────────────────────────────────────────────────────────────
 interface IntentData {
   category: string;
   keyword: string;
@@ -67,103 +59,61 @@ interface CampaignData {
   costPerMatch: number;
 }
 
-// ── Scorer ──
-export class SemanticScorer {
-  /**
-   * 최종 점수 = W1·categoryValue + W2·searchIntensity + W3·siteReliability + W4·keywordRelevance
-   * 가중치: 카테고리(0.25) + 검색강도(0.25) + 사이트신뢰도(0.20) + 키워드관련성(0.30)
-   */
-  static score(intent: IntentData, campaign: CampaignData): number {
-    const W1 = 0.25;
-    const W2 = 0.25;
-    const W3 = 0.20;
-    const W4 = 0.30;
+/** $queryRaw 결과 행 타입 */
+interface VectorCandidateRow extends CampaignData {
+  vector_similarity: number; // pgvector 코사인 유사도 (0~1); -1이면 폴백 캠페인
+  title?: string;
+}
 
-    const categoryValue = this.scoreCategoryValue(intent, campaign);
-    const searchIntensity = this.scoreSearchIntensity(intent);
-    const siteReliability = this.scoreSiteReliability(campaign);
-    const keywordRelevance = this.scoreKeywordRelevance(intent, campaign);
+// ── SemanticScorer ───────────────────────────────────────────────────
+/**
+ * 비즈니스 시그널 기반 점수 계산기.
+ * 카테고리 가치(0.25) + 검색 강도(0.25) + 사이트 신뢰도(0.20) + 키워드 관련성(0.30)
+ */
+export class SemanticScorer {
+  static score(intent: IntentData, campaign: CampaignData): number {
+    const W1 = 0.25, W2 = 0.25, W3 = 0.20, W4 = 0.30;
 
     return Math.min(
       1,
-      W1 * categoryValue +
-        W2 * searchIntensity +
-        W3 * siteReliability +
-        W4 * keywordRelevance
+      W1 * this.scoreCategoryValue(intent, campaign) +
+      W2 * this.scoreSearchIntensity(intent) +
+      W3 * this.scoreSiteReliability(campaign) +
+      W4 * this.scoreKeywordRelevance(intent, campaign)
     );
   }
 
-  /** 카테고리 가치: 같은 카테고리면 가치 가중치 반환, 다르면 0 */
-  private static scoreCategoryValue(
-    intent: IntentData,
-    campaign: CampaignData
-  ): number {
+  private static scoreCategoryValue(intent: IntentData, campaign: CampaignData): number {
     if (intent.category !== campaign.category) return 0;
     return CATEGORY_VALUE[intent.category] ?? 0.3;
   }
 
-  /** 검색 강도: 의도 텍스트에 구매/비교/추천 등 시그널이 있으면 가산 */
   private static scoreSearchIntensity(intent: IntentData): number {
-    const text = `${intent.keyword} ${intent.description}`.toLowerCase();
-
-    // 비상업적 의도는 강도 0
     if (!intent.isCommercial) return 0;
-
-    let score = 0;
-
-    // confidence 자체가 AI가 판단한 의도 확실성
-    score += intent.confidence * 0.4;
-
-    // 고강도 시그널
-    if (HIGH_INTENT_SIGNALS.some((s) => text.includes(s))) {
-      score += 0.4;
-    }
-    // 중강도 시그널
-    else if (MID_INTENT_SIGNALS.some((s) => text.includes(s))) {
-      score += 0.2;
-    }
-
-    // pointValue가 높으면 AI가 고가치로 판단한 것 → 가산
-    score += (intent.pointValue / 1000) * 0.2;
-
+    const text = `${intent.keyword} ${intent.description}`.toLowerCase();
+    let score = intent.confidence * 0.4;
+    if (HIGH_INTENT_SIGNALS.some((s) => text.includes(s))) score += 0.4;
+    else if (MID_INTENT_SIGNALS.some((s) => text.includes(s))) score += 0.2;
+    score += (intent.pointValue / 1_000) * 0.2;
     return Math.min(1, score);
   }
 
-  /** 사이트 신뢰도: 캠페인 잔여 예산 비율 + URL 보유 여부 + siteName 보유 여부 */
   private static scoreSiteReliability(campaign: CampaignData): number {
-    let score = 0;
-
-    // 잔여 예산 비율 (예산 여유가 많을수록 신뢰)
-    const budgetRatio = Math.max(
-      0,
-      (campaign.budget - campaign.spent) / campaign.budget
-    );
-    score += budgetRatio * 0.5;
-
-    // URL 보유 → 실제 랜딩 페이지가 있음
+    const budgetRatio = Math.max(0, (campaign.budget - campaign.spent) / campaign.budget);
+    let score = budgetRatio * 0.5;
     if (campaign.url) score += 0.3;
-
-    // siteName 보유 → 브랜드 정보 있음
     if (campaign.siteName) score += 0.2;
-
     return Math.min(1, score);
   }
 
-  /** 키워드 관련성: 정확 일치 > 부분 포함 > 토큰 겹침 */
-  private static scoreKeywordRelevance(
-    intent: IntentData,
-    campaign: CampaignData
-  ): number {
+  private static scoreKeywordRelevance(intent: IntentData, campaign: CampaignData): number {
     const intentTokens = this.tokenize(intent.keyword);
-    const subTokens = intent.subcategory
-      ? this.tokenize(intent.subcategory)
-      : [];
+    const subTokens = intent.subcategory ? this.tokenize(intent.subcategory) : [];
     const allIntentTokens = [...intentTokens, ...subTokens];
     const campaignTokens = campaign.keywords.flatMap((k) => this.tokenize(k));
 
     if (campaignTokens.length === 0 || allIntentTokens.length === 0) return 0;
 
-    // 1) 정확 일치 (intent keyword가 campaign keyword에 그대로 포함)
     const intentKwLower = intent.keyword.toLowerCase();
     const exactMatch = campaign.keywords.some((ck) => {
       const ckLower = ck.toLowerCase();
@@ -171,100 +121,154 @@ export class SemanticScorer {
     });
     if (exactMatch) return 1.0;
 
-    // 2) 토큰 Jaccard 유사도
     const intentSet = new Set(allIntentTokens);
     const campaignSet = new Set(campaignTokens);
     const intersection = [...intentSet].filter((t) => campaignSet.has(t));
     const union = new Set([...intentSet, ...campaignSet]);
     const jaccard = intersection.length / union.size;
 
-    // 3) 토큰 부분 포함 (한국어 조사/어미 때문에 부분 일치 필요)
     let partialHits = 0;
     for (const it of allIntentTokens) {
       if (it.length < 2) continue;
-      for (const ct of campaignTokens) {
-        if (ct.length < 2) continue;
-        if (ct.includes(it) || it.includes(ct)) {
-          partialHits++;
-          break;
-        }
+      if (campaignTokens.some((ct) => ct.length >= 2 && (ct.includes(it) || it.includes(ct)))) {
+        partialHits++;
       }
     }
-    const partialRatio =
-      allIntentTokens.length > 0 ? partialHits / allIntentTokens.length : 0;
+    const partialRatio = allIntentTokens.length > 0 ? partialHits / allIntentTokens.length : 0;
 
-    // Jaccard(0.6 가중) + 부분 매칭(0.4 가중)
     return Math.min(1, jaccard * 0.6 + partialRatio * 0.4);
   }
 
-  /** 한국어 + 영어 토크나이저 (공백/특수문자 분리, 2자 이상) */
   private static tokenize(text: string): string[] {
-    return text
-      .toLowerCase()
-      .split(/[\s,./·\-_()]+/)
-      .filter((t) => t.length >= 2);
+    return text.toLowerCase().split(/[\s,./·\-_()]+/).filter((t) => t.length >= 2);
   }
 }
 
-// ── MatchingService ──
+// ── HybridScorer ─────────────────────────────────────────────────────
+/**
+ * 벡터 유사도(α) + 비즈니스 시맨틱(β) 혼합 점수 계산기.
+ *
+ * 설계 의도:
+ *  - 벡터(0.40): 의미적 유사성 → 같은 범주의 캠페인을 넓게 포착
+ *  - 시맨틱(0.60): 카테고리 단가·구매 의도·키워드 정확도 등 광고 품질 신호
+ *    → 실제 광고 가치를 더 직접적으로 반영하므로 가중치를 높게 설정
+ *
+ * vectorSimilarity = 1 - cosine_distance  (pgvector의 <=> 연산자 결과를 변환)
+ */
+export class HybridScorer {
+  static score(
+    intent: IntentData,
+    campaign: CampaignData,
+    vectorSimilarity: number
+  ): number {
+    const semanticScore = SemanticScorer.score(intent, campaign);
+
+    // 벡터 유사도가 없거나 NaN이면 시맨틱 점수만 사용 (Graceful Degradation)
+    if (!Number.isFinite(vectorSimilarity) || vectorSimilarity < 0) {
+      return semanticScore;
+    }
+
+    return Math.min(
+      1,
+      VECTOR_WEIGHT * vectorSimilarity + SEMANTIC_WEIGHT * semanticScore
+    );
+  }
+}
+
+// ── MatchingService ───────────────────────────────────────────────────
 export class MatchingService {
+  /**
+   * 핵심 매칭 파이프라인:
+   *  1. Intent 임베딩 생성 (DB에 없으면 실시간 생성 후 저장)
+   *  2. $queryRaw로 DB 단 코사인 유사도 Top-N 필터링
+   *  3. 배치 중복 매칭 체크 (N+1 제거)
+   *  4. HybridScorer로 최종 점수 계산
+   *  5. Match 레코드 일괄 생성
+   */
   static async matchIntentToCampaigns(intentId: string) {
-    const intent = await prisma.intent.findUnique({
-      where: { id: intentId },
+    const intent = await prisma.intent.findUnique({ where: { id: intentId } });
+    if (!intent || intent.status !== "active" || !intent.isCommercial) return [];
+
+    // ── Step 1: Intent 임베딩 확보 ──────────────────────────────────
+    const intentEmbedding = await this.getOrCreateIntentEmbedding(intentId, intent);
+
+    // ── Step 2: DB 단 벡터 유사도 1차 필터링 ──────────────────────
+    // pgvector의 <=> 연산자는 코사인 거리(0=동일, 2=반대)를 반환
+    // 따라서 similarity = 1 - distance 로 변환
+    // 임베딩이 없는 캠페인은 이 단계에서 제외되므로 별도 폴백 실행
+    const vectorStr = EmbeddingService.toVectorLiteral(intentEmbedding);
+
+    const vectorCandidates = await prisma.$queryRaw<VectorCandidateRow[]>(
+      Prisma.sql`
+        SELECT
+          id,
+          title,
+          category,
+          keywords,
+          url,
+          "siteName",
+          budget,
+          spent,
+          "costPerMatch",
+          (1 - (embedding <=> ${vectorStr}::vector))::float8 AS vector_similarity
+        FROM "Campaign"
+        WHERE
+          status    = 'active'
+          AND "endDate" >= NOW()
+          AND spent < budget
+          AND embedding IS NOT NULL
+        ORDER BY embedding <=> ${vectorStr}::vector
+        LIMIT ${VECTOR_TOP_N}
+      `
+    );
+
+    // 임베딩 없는 캠페인 폴백: 카테고리/키워드 기반 전통 검색
+    const legacyCandidates =
+      vectorCandidates.length === 0
+        ? await this.fetchLegacyCandidates(intent.category, intent.keyword)
+        : [];
+
+    // 유효한 캠페인 통합 (벡터 후보 우선)
+    const allCandidates: VectorCandidateRow[] = [
+      ...vectorCandidates,
+      ...legacyCandidates.map((c) => ({ ...c, vector_similarity: -1 })), // -1: 폴백 표시
+    ];
+
+    if (allCandidates.length === 0) return [];
+
+    // ── Step 3: 배치 중복 매칭 체크 (N+1 → 1 쿼리) ────────────────
+    const candidateIds = allCandidates.map((c) => c.id);
+    const existingMatches = await prisma.match.findMany({
+      where: { intentId, campaignId: { in: candidateIds } },
+      select: { campaignId: true },
     });
+    const alreadyMatchedIds = new Set(existingMatches.map((m) => m.campaignId));
 
-    if (!intent || intent.status !== "active") return [];
+    // ── Step 4: HybridScorer 최종 점수 계산 ───────────────────────
+    const scored: { campaign: VectorCandidateRow; finalScore: number }[] = [];
 
-    // 비상업적 의도는 매칭 스킵
-    if (!intent.isCommercial) return [];
-
-    // 활성 캠페인 조회 (카테고리 OR 키워드 매칭)
-    const campaigns = await prisma.campaign.findMany({
-      where: {
-        status: "active",
-        endDate: { gte: new Date() },
-        OR: [
-          { category: intent.category },
-          { keywords: { hasSome: [intent.keyword, intent.category] } },
-        ],
-      },
-    });
-
-    const scored: { campaign: CampaignData; score: number }[] = [];
-
-    for (const campaign of campaigns) {
+    for (const campaign of allCandidates) {
+      if (alreadyMatchedIds.has(campaign.id)) continue;
       if (campaign.spent >= campaign.budget) continue;
 
-      // 이미 매칭된 건 스킵
-      const existing = await prisma.match.findUnique({
-        where: {
-          intentId_campaignId: {
-            intentId: intent.id,
-            campaignId: campaign.id,
-          },
-        },
-      });
-      if (existing) continue;
-
-      const score = SemanticScorer.score(intent, campaign);
-      if (score >= 0.4) {
-        scored.push({ campaign, score });
+      const finalScore = HybridScorer.score(intent, campaign, campaign.vector_similarity);
+      if (finalScore >= HYBRID_MIN_SCORE) {
+        scored.push({ campaign, finalScore });
       }
     }
 
-    // 점수 내림차순 정렬
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => b.finalScore - a.finalScore);
 
+    // ── Step 5: Match 레코드 생성 ──────────────────────────────────
     const matches = [];
-    for (const { campaign, score } of scored) {
-      // 보상 = costPerMatch × score (고품질 매칭일수록 보상 증가)
-      const reward = Math.round(campaign.costPerMatch * score);
+    for (const { campaign, finalScore } of scored) {
+      const reward = Math.round(campaign.costPerMatch * finalScore);
 
       const match = await prisma.match.create({
         data: {
           intentId: intent.id,
           campaignId: campaign.id,
-          score,
+          score: finalScore,
           reward,
         },
       });
@@ -281,6 +285,63 @@ export class MatchingService {
     return matches;
   }
 
+  /**
+   * Intent 임베딩을 DB에서 가져오거나 없으면 생성 후 저장.
+   * DB에 저장된 임베딩을 raw SQL로 읽는다 (Unsupported 타입은 Prisma ORM이 직렬화 불가).
+   */
+  private static async getOrCreateIntentEmbedding(
+    intentId: string,
+    intent: IntentData & { id: string }
+  ): Promise<number[]> {
+    // embedding 컬럼은 Unsupported("vector") 타입이므로 ORM 대신 raw로 조회
+    const rows = await prisma.$queryRaw<{ embedding: string | null }[]>(
+      Prisma.sql`SELECT embedding::text FROM "Intent" WHERE id = ${intentId}`
+    );
+
+    const stored = rows[0]?.embedding;
+    if (stored) {
+      // PostgreSQL vector 리터럴 "[0.1,0.2,...]" → number[]
+      return stored.slice(1, -1).split(",").map(Number);
+    }
+
+    // 임베딩 생성 후 비동기 저장 (매칭 블로킹 최소화)
+    const text = EmbeddingService.buildIntentText(intent);
+    const embedding = await EmbeddingService.embed(text);
+    const vectorStr = EmbeddingService.toVectorLiteral(embedding);
+
+    // fire-and-forget: 저장 실패해도 매칭 자체는 계속 진행
+    prisma.$executeRaw(
+      Prisma.sql`UPDATE "Intent" SET embedding = ${vectorStr}::vector WHERE id = ${intentId}`
+    ).catch((err) => console.error("[MatchingService] Intent 임베딩 저장 실패:", err));
+
+    return embedding;
+  }
+
+  /**
+   * 임베딩 없는 캠페인을 위한 폴백 조회 (기존 카테고리/키워드 기반).
+   * 전체 시스템이 벡터화 완료되면 이 메서드는 제거 가능.
+   */
+  private static async fetchLegacyCandidates(
+    category: string,
+    keyword: string
+  ): Promise<CampaignData[]> {
+    // Unsupported("vector") 타입은 Prisma ORM where절 사용 불가 → $queryRaw로 처리
+    return prisma.$queryRaw<CampaignData[]>(
+      Prisma.sql`
+        SELECT id, category, keywords, url, "siteName", budget, spent, "costPerMatch"
+        FROM "Campaign"
+        WHERE
+          status = 'active'
+          AND "endDate" >= NOW()
+          AND spent < budget
+          AND embedding IS NULL
+          AND (category = ${category} OR ${keyword} = ANY(keywords) OR ${category} = ANY(keywords))
+        LIMIT 100
+      `
+    );
+  }
+
+  // ── 사용자 전체 의도 매칭 ──────────────────────────────────────────
   static async runMatchingForUser(userId: string) {
     const activeIntents = await prisma.intent.findMany({
       where: { userId, status: "active", isCommercial: true },
@@ -291,41 +352,29 @@ export class MatchingService {
       const matches = await this.matchIntentToCampaigns(intent.id);
       allMatches.push(...matches);
     }
-
     return allMatches;
   }
 
+  // ── 매칭 수락 (원자적 처리) ──────────────────────────────────────
   static async acceptMatch(matchId: string, userId: string) {
     const match = await prisma.match.findUnique({
       where: { id: matchId },
       include: { intent: true, campaign: true },
     });
 
-    if (!match || match.intent.userId !== userId) {
-      throw new Error("Match not found");
-    }
+    if (!match || match.intent.userId !== userId) throw new Error("Match not found");
+    if (match.status !== "pending") throw new Error("Match already processed");
 
-    if (match.status !== "pending") {
-      throw new Error("Match already processed");
-    }
-
-    // 원자적 처리: 매칭 수락 + 캠페인 지출 + 유저 포인트 + 트랜잭션
     await prisma.$transaction(async (tx) => {
-      await tx.match.update({
-        where: { id: matchId },
-        data: { status: "accepted" },
-      });
-
+      await tx.match.update({ where: { id: matchId }, data: { status: "accepted" } });
       await tx.campaign.update({
         where: { id: match.campaignId },
         data: { spent: { increment: match.reward } },
       });
-
       const user = await tx.user.update({
         where: { id: userId },
         data: { points: { increment: match.reward } },
       });
-
       await tx.transaction.create({
         data: {
           userId,
@@ -351,14 +400,7 @@ export class MatchingService {
       where: { id: matchId },
       include: { intent: true },
     });
-
-    if (!match || match.intent.userId !== userId) {
-      throw new Error("Match not found");
-    }
-
-    return prisma.match.update({
-      where: { id: matchId },
-      data: { status: "rejected" },
-    });
+    if (!match || match.intent.userId !== userId) throw new Error("Match not found");
+    return prisma.match.update({ where: { id: matchId }, data: { status: "rejected" } });
   }
 }

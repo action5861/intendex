@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
+import { EmbeddingService } from "@/services/embedding.service";
 
 export async function PATCH(
   req: NextRequest,
@@ -37,6 +39,26 @@ export async function PATCH(
     where: { id },
     data: updateData,
   });
+
+  // 임베딩 관련 필드(title/description/category/keywords)가 바뀐 경우에만 재생성
+  const needsReembed = body.title || body.description || body.category || body.keywords;
+  if (needsReembed) {
+    try {
+      const text = EmbeddingService.buildCampaignText({
+        title: updated.title,
+        description: updated.description,
+        category: updated.category,
+        keywords: updated.keywords,
+      });
+      const embedding = await EmbeddingService.embed(text);
+      const vectorStr = EmbeddingService.toVectorLiteral(embedding);
+      await prisma.$executeRaw(
+        Prisma.sql`UPDATE "Campaign" SET embedding = ${vectorStr}::vector WHERE id = ${id}`
+      );
+    } catch (err) {
+      console.error("[Campaign PATCH] 임베딩 재생성 실패:", err);
+    }
+  }
 
   return NextResponse.json(updated);
 }
