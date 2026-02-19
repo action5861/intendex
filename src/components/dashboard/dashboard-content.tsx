@@ -8,12 +8,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Lightbulb, Coins, HandshakeIcon, TrendingUp } from "lucide-react";
+import { Lightbulb, Coins, HandshakeIcon, TrendingUp, CalendarClock } from "lucide-react";
 
 interface DashboardStats {
   totalPoints: number;
   totalIntents: number;
   totalMatches: number;
+  todayPoints: number;
+  dailyCap: number;
   categoryDistribution: { category: string; count: number }[];
   recentTransactions: {
     id: string;
@@ -24,8 +26,47 @@ interface DashboardStats {
 }
 
 export function DashboardContent({ stats }: { stats: DashboardStats }) {
+  const todayProgress = Math.min((stats.todayPoints / stats.dailyCap) * 100, 100);
+  const isCapReached = stats.todayPoints >= stats.dailyCap;
+  const remaining = Math.max(0, stats.dailyCap - stats.todayPoints);
+
   return (
     <div className="p-4 md:p-6 space-y-6">
+      {/* 오늘 기본소득 현황 카드 */}
+      <Card className={isCapReached ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30" : "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"}>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div className="flex items-center gap-2">
+            <CalendarClock className={`h-5 w-5 ${isCapReached ? "text-amber-500" : "text-emerald-500"}`} />
+            <CardTitle className="text-base">오늘 기본소득 현황</CardTitle>
+          </div>
+          <Badge variant={isCapReached ? "outline" : "secondary"} className={isCapReached ? "border-amber-400 text-amber-700 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"}>
+            {isCapReached ? "한도 도달" : `${remaining.toLocaleString()}P 남음`}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-end justify-between">
+            <span className="text-3xl font-bold">
+              {stats.todayPoints.toLocaleString()}
+              <span className="text-sm font-normal text-muted-foreground ml-1">P</span>
+            </span>
+            <span className="text-sm text-muted-foreground">
+              한도 {stats.dailyCap.toLocaleString()}P
+            </span>
+          </div>
+          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-500 ${isCapReached ? "bg-amber-400" : "bg-emerald-500"}`}
+              style={{ width: `${todayProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {isCapReached
+              ? "오늘 기본소득 한도를 모두 사용했어요. 내일 자정 이후 다시 적립할 수 있습니다."
+              : `오늘 ${stats.todayPoints.toLocaleString()}P 적립 완료 · 추가로 ${remaining.toLocaleString()}P 더 받을 수 있어요.`}
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

@@ -8,7 +8,12 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const [user, intentCount, matchCount, recentTransactions, categoryStats] =
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const DAILY_CAP = 1000;
+
+  const [user, intentCount, matchCount, recentTransactions, categoryStats, todayAggregate] =
     await Promise.all([
       prisma.user.findUnique({
         where: { id: session.user.id },
@@ -28,12 +33,25 @@ export default async function DashboardPage() {
         where: { userId: session.user.id },
         _count: { category: true },
       }),
+      prisma.transaction.aggregate({
+        where: {
+          userId: session.user.id,
+          type: "earn",
+          createdAt: { gte: todayStart },
+          metadata: { path: ["source"], equals: "intent_reward" },
+        },
+        _sum: { amount: true },
+      }),
     ]);
+
+  const todayPoints = todayAggregate._sum.amount ?? 0;
 
   const stats = {
     totalPoints: user?.points ?? 0,
     totalIntents: intentCount,
     totalMatches: matchCount,
+    todayPoints,
+    dailyCap: DAILY_CAP,
     categoryDistribution: categoryStats.map((s) => ({
       category: s.category,
       count: s._count.category,

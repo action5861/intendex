@@ -70,6 +70,20 @@ async function searchGoogleWeb(query: string): Promise<SearchResult[]> {
   }
 }
 
+// 금융 서브도메인 감지용 키워드 맵
+const FINANCIAL_DOMAIN_MAP: Record<string, string[]> = {
+  loan: ["대출", "전세", "주택담보", "신용대출", "모기지", "주담대", "대환대출", "전세자금", "생활자금"],
+  insurance: ["보험", "암보험", "실손", "생명보험", "손해보험", "건강보험", "종신보험", "연금보험", "치아보험", "펫보험", "운전자보험"],
+  bank: ["예금", "적금", "저축", "통장", "파킹통장", "금리우대", "입출금"],
+};
+
+// 도메인별 siteName 패턴
+const DOMAIN_SITE_PATTERNS: Record<string, string[]> = {
+  loan: ["국민은행", "신한은행", "하나은행", "우리은행", "농협은행", "기업은행", "카카오뱅크", "토스뱅크", "핀다", "카카오페이"],
+  insurance: ["삼성생명", "한화생명", "교보생명", "현대해상", "DB손해보험", "KB손해보험", "메리츠화재", "보험다모아"],
+  bank: ["국민은행", "신한은행", "하나은행", "우리은행", "농협은행", "기업은행", "카카오뱅크", "토스뱅크"],
+};
+
 async function findMatchingCampaigns(query: string): Promise<SearchResult[]> {
   const now = new Date();
   const campaigns = await prisma.campaign.findMany({
@@ -84,14 +98,33 @@ async function findMatchingCampaigns(query: string): Promise<SearchResult[]> {
   const queryLower = query.toLowerCase();
   const queryTokens = queryLower.split(/\s+/);
 
+  // 금융 서브도메인 감지
+  const detectedDomains = Object.entries(FINANCIAL_DOMAIN_MAP)
+    .filter(([, signals]) => signals.some((kw) => queryLower.includes(kw)))
+    .map(([domain]) => domain);
+
   const matched = campaigns.filter((campaign) => {
     if (campaign.spent >= campaign.budget) return false;
-    return campaign.keywords.some((kw) => {
+
+    // 1) 키워드 토큰 매칭 (기존 방식)
+    const keywordMatch = campaign.keywords.some((kw) => {
       const kwLower = kw.toLowerCase();
       return queryTokens.some(
         (token) => kwLower.includes(token) || token.includes(kwLower)
       );
     });
+    if (keywordMatch) return true;
+
+    // 2) 금융 서브도메인 감지 → 해당 도메인의 siteNmae 캠페인 포함
+    if (detectedDomains.length > 0 && campaign.siteName) {
+      return detectedDomains.some((domain) =>
+        DOMAIN_SITE_PATTERNS[domain]?.some((pattern) =>
+          campaign.siteName!.includes(pattern)
+        )
+      );
+    }
+
+    return false;
   });
 
   return matched.map((c) => {
@@ -184,14 +217,34 @@ const SYSTEM_PROMPT_BASE = `당신은 인텐덱스(Intendex)의 AI 어시스턴�
 - 머스트잇: https://www.mustit.co.kr
 - 닥터나우: https://doctornow.co.kr
 - 보험다모아: https://e-insmarket.or.kr
+- 삼성생명: https://www.samsunglife.com
+- 한화생명: https://www.hanwhalife.com
+- 교보생명: https://www.kyobo.co.kr
+- 현대해상: https://www.hi.co.kr
+- DB손해보험: https://www.directdb.co.kr
+- KB손해보험: https://www.kbinsure.co.kr
+- 메리츠화재: https://www.meritzfire.com
+- KB국민은행: https://www.kbstar.com
+- 신한은행: https://www.shinhan.com
+- 하나은행: https://www.kebhana.com
+- 우리은행: https://www.wooribank.com
+- NH농협은행: https://www.nhbank.com
+- 토스뱅크: https://www.tossbank.com
+- IBK기업은행: https://www.ibk.co.kr
+- 굿네이버스: https://www.goodneighbors.kr
+- 월드비전: https://www.worldvision.or.kr
+- 유니세프: https://www.unicef.or.kr
+- 그린피스: https://www.greenpeace.org/korea
+- 동물자유연대: https://www.animals.or.kr
+- 해피빈: https://happybean.naver.com
 - 탈잉: https://taling.me
 - 텀블벅: https://tumblbug.com
 - 아이디어스: https://www.idus.com
 
 [중요] 사이트 추천 방식:
 - 상업적 의도 감지 시 아래 "카테고리별 추천 사이트 DB"에서 3개를 골라 recommendedSites에 포함하세요.
-- DB에 없는 세부 분야라면 searchGoogle 도구를 사용해 보충하세요. 단, Google 검색은 최소한으로 사용하세요.
-- 검색 결과에 sponsored: true인 사이트가 있으면 해당 사이트를 우선적으로 포함하세요.
+- **대출·전세·보험 의도는 반드시 searchGoogle 도구를 먼저 호출**하여 캠페인 DB에서 후원 사이트를 우선 가져오세요.
+- 검색 결과에 sponsored: true인 사이트가 있으면 해당 사이트를 최우선으로 포함하세요.
 - 추천할 때 광고라고 따로 표시하지 마세요. 자연스럽게 추천하세요.
 
 [카테고리별 추천 사이트 DB] (URL은 위의 검색URL/홈페이지 목록을 참조)
@@ -199,7 +252,11 @@ const SYSTEM_PROMPT_BASE = `당신은 인텐덱스(Intendex)의 AI 어시스턴�
 - 쇼핑: 쿠팡, 11번가, G마켓, SSG, 롯데ON
 - 건강: 올리브영, 아이허브, 닥터나우, 굿닥
 - 교육: 클래스101, 인프런, 패스트캠퍼스, 에듀윌
-- 금융: 토스, 카카오뱅크, 뱅크샐러드, 핀다
+- 금융(대출·전세자금): KB국민은행, 하나은행, IBK기업은행, 신한은행, 우리은행, NH농협은행, 카카오뱅크, 핀다
+- 금융(보험·암보험·실손): 삼성생명, 한화생명, 교보생명, 메리츠화재, DB손해보험, KB손해보험, 보험다모아
+- 금융(예금·적금·저축): 토스뱅크, 카카오뱅크, KB국민은행, 신한은행, 토스, 뱅크샐러드
+- 금융(주식·투자): 토스, 뱅크샐러드, 카카오뱅크, KB국민은행
+- 금융(일반): 토스, 카카오뱅크, 토스뱅크, 뱅크샐러드, 핀다
 - 음식: 배달의민족, 요기요, 쿠팡이츠, 마켓컬리
 - 패션: 무신사, W컨셉, 지그재그, 에이블리
 - 테크: 다나와, 컴퓨존, 하이마트
@@ -207,8 +264,38 @@ const SYSTEM_PROMPT_BASE = `당신은 인텐덱스(Intendex)의 AI 어시스턴�
 - 자동차: K카, 엔카, 카닥, KB차차차
 - 취미: 클래스101, 탈잉, 텀블벅, 아이디어스
 - 명품: 발란, 트렌비, 머스트잇
-- 보험: 보험다모아
 - 지역정보: 네이버 플레이스, 카카오맵, 망고플레이트, 굿닥
+- 비영리: 굿네이버스(https://www.goodneighbors.kr), 월드비전(https://www.worldvision.or.kr), 유니세프(https://www.unicef.or.kr), 그린피스(https://www.greenpeace.org/korea), 동물자유연대(https://www.animals.or.kr), 해피빈(https://happybean.naver.com)
+
+[필수] 금융 서브카테고리 사이트 추천 규칙 (반드시 따르세요):
+
+▶ 대출·전세 키워드: "대출", "전세자금", "전세대출", "주택담보대출", "신용대출", "주담대", "전세"
+  → recommendedSites 3개를 아래에서 선택 (반드시 이 사이트들로 채우세요):
+  · {"url":"https://www.kbstar.com","name":"KB국민은행","reason":"국민은행 전세자금대출·주택담보대출 금리 비교"}
+  · {"url":"https://www.kebhana.com","name":"하나은행","reason":"하나은행 전세자금대출 맞춤 금리 상담"}
+  · {"url":"https://www.ibk.co.kr","name":"IBK기업은행","reason":"기업은행 전세자금대출·신용대출 상담"}
+  · {"url":"https://www.shinhan.com","name":"신한은행","reason":"신한은행 전세자금대출 금리 안내"}
+  · {"url":"https://www.wooribank.com","name":"우리은행","reason":"우리은행 전세자금대출 한도 확인"}
+  · {"url":"https://www.kakaobank.com","name":"카카오뱅크","reason":"카카오뱅크 전세자금대출 간편 신청"}
+  · {"url":"https://finda.co.kr","name":"핀다","reason":"여러 은행 대출 금리 한번에 비교"}
+
+▶ 보험 키워드: "보험", "암보험", "실손보험", "건강보험", "종신보험", "연금보험", "치아보험", "생명보험"
+  → recommendedSites 3개를 아래에서 선택 (반드시 이 사이트들로 채우세요):
+  · {"url":"https://www.samsunglife.com","name":"삼성생명","reason":"삼성생명 암보험·건강보험 무료 상담"}
+  · {"url":"https://www.hanwhalife.com","name":"한화생명","reason":"한화생명 암보험·CI보험 맞춤 설계"}
+  · {"url":"https://www.kyobo.co.kr","name":"교보생명","reason":"교보생명 암보험·실손보험 비교 설계"}
+  · {"url":"https://www.meritzfire.com","name":"메리츠화재","reason":"메리츠화재 암보험·치아보험 상담"}
+  · {"url":"https://www.directdb.co.kr","name":"DB손해보험","reason":"DB손해보험 건강보험·실손보험 가입"}
+  · {"url":"https://www.kbinsure.co.kr","name":"KB손해보험","reason":"KB손해보험 암보험·운전자보험 비교"}
+  · {"url":"https://e-insmarket.or.kr","name":"보험다모아","reason":"여러 보험사 상품 한번에 비교"}
+
+※ 위 키워드가 감지되면 searchGoogle을 호출하지 말고, 위 목록에서 바로 3개를 선택하세요.
+
+[중요] 비영리·기부·봉사 의도 감지:
+- "기부", "후원", "봉사", "나눔", "도움", "구호", "보호" 등 비영리 키워드가 포함되면 비영리 카테고리로 분류하세요.
+- 아동보호, 유기동물, 환경보호, 난민구호, 장애인지원 등도 비영리입니다.
+- 비영리 의도는 isCommercial: true, pointValue: 100으로 설정하세요.
+- 비영리 사이트는 모두 홈페이지만 연결하세요 (검색어 파라미터 넣지 마세요).
 
 [중요] 상업적 의도 vs 비상업적 의도 판단:
 - **상업적 의도 (isCommercial: true)**: 제품/서비스 구매, 비교, 추천, 가격 조회, 예약, 구독 등 상업적 행동으로 이어질 수 있는 의도
@@ -228,7 +315,7 @@ const SYSTEM_PROMPT_BASE = `당신은 인텐덱스(Intendex)의 AI 어시스턴�
 {
   "intents": [
     {
-      "category": "카테고리 (여행/쇼핑/건강/교육/금융/음식/패션/테크/부동산/자동차/취미/지역정보/기타 중 하나)",
+      "category": "카테고리 (여행/쇼핑/건강/교육/금융/음식/패션/테크/부동산/자동차/취미/지역정보/비영리/기타 중 하나)",
       "subcategory": "세부 카테고리 (선택)",
       "keyword": "핵심 키워드",
       "description": "의도 요약 (한 문장)",
@@ -254,8 +341,7 @@ function buildSystemPrompt(remainingPoints: number): string {
   return `${SYSTEM_PROMPT_BASE}
 
 [현재 사용자 일일 현황]
-- 오늘 남은 적립 가능 포인트: ${remainingPoints}P / ${DAILY_INTENT_POINT_CAP}P
-${remainingPoints <= 0 ? "- ⚠️ 오늘 포인트 적립 한도에 도달했습니다. 내일 다시 적립할 수 있습니다." : ""}`;
+- 오늘 남은 적립 가능 포인트: ${remainingPoints}P / ${DAILY_INTENT_POINT_CAP}P`;
 }
 
 function extractTextFromUIMessages(messages: UIMessage[]): { role: "user" | "assistant"; content: string }[] {
@@ -302,7 +388,16 @@ export async function POST(req: Request) {
 
   // Get daily intent stats for dynamic prompt
   const dailyStats = await RewardService.getDailyIntentStats(session.user.id);
-  const remainingPoints = Math.max(0, DAILY_INTENT_POINT_CAP - dailyStats.totalPoints);
+
+  // Block chat when daily cap is reached
+  if (dailyStats.totalPoints >= DAILY_INTENT_POINT_CAP) {
+    return new Response(
+      JSON.stringify({ error: "daily_cap_reached" }),
+      { status: 429, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const remainingPoints = DAILY_INTENT_POINT_CAP - dailyStats.totalPoints;
 
   const result = streamText({
     model: google("gemini-2.0-flash"),

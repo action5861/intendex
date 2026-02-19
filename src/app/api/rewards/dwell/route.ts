@@ -93,9 +93,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // Clamp to remaining daily cap
-  const remaining = DAILY_MAX_POINTS - todayPoints;
-  const awardPoints = Math.min(requestedPoints, remaining);
+  // Award full pointValue even if it exceeds the daily cap
+  // (e.g. 800P earned + 300P click = 1100P is allowed)
+  const awardPoints = requestedPoints;
 
   // Award points in a transaction
   const [user, transaction] = await prisma.$transaction(async (tx) => {

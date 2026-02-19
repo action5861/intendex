@@ -76,38 +76,24 @@ export default function LandingPage() {
         <div className="flex flex-col lg:flex-row items-center gap-12">
           {/* Left: Text Content */}
           <div className="flex-1 text-center lg:text-left z-10">
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-            >
+            
+            
               <h1 className="text-4xl md:text-6xl font-extrabold leading-[1.15] tracking-tight break-keep">
                 당신의 의도가 <br className="hidden md:block" />
                 <span className="text-blue-600">평생 자산</span>이 되는 곳
               </h1>
               <p className="mt-6 text-lg md:text-xl text-slate-600 font-medium break-keep">
-                하루 60초, 데이터 기본소득이 시작됩니다. <br className="hidden md:block" />
-                AI와 간단한 대화만으로 수익을 만듭니다.
+                하루 60초, AI와 간단한 대화만으로
+                데이터 기본소득을 얻으세요 <br className="hidden md:block" />
+                
               </p>
-            </motion.div>
-
-            {/* 실시간 카운터 (데스크탑) */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, delay: 0.5 }}
-              className="hidden md:flex items-center gap-3 mt-8 p-4 bg-slate-50 border border-slate-100 rounded-2xl w-fit"
-            >
-              <div className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-slate-500 font-medium">오늘 전체 지급액:</span>
-              <span className="text-xl font-bold text-emerald-600">₩{accumulatedAmount.toLocaleString()}</span>
-            </motion.div>
+            
 
             <div className="mt-10 flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">
               {/* ✅ [수정] 메인 버튼 로그인 링크 연결 */}
               <Link href="/login">
                 <Button size="lg" className="h-16 px-10 text-lg font-bold rounded-full bg-linear-to-r from-blue-600 to-blue-500 hover:shadow-blue-200 hover:shadow-2xl transition-all gap-2 animate-bounce-subtle cursor-pointer">
-                  지금 내 데이터 자산 만들기 <ArrowRight />
+                  지금 데이터 기본소득 만들기 <ArrowRight />
                 </Button>
               </Link>
               <a href="#how-it-works" className="text-slate-500 font-medium hover:underline decoration-2 underline-offset-4">
@@ -144,7 +130,7 @@ export default function LandingPage() {
         <div className="container mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-black mb-4 break-keep">
-              어떻게 내 데이터 기본소득이 만들어지나요?
+              어떻게 데이터 기본소득이 만들어지나요?
             </h2>
             <div className="h-1.5 w-20 bg-blue-600 mx-auto rounded-full" />
           </div>
@@ -159,7 +145,7 @@ export default function LandingPage() {
             <FeatureCard 
               step="2"
               icon={Lock}
-              title="생각을 데이터 자산으로"
+              title="의도를 데이터 자산으로"
               description="익명화된 '의도(Intent)'만 추출하여 당신 소유의 안전한 디지털 인덱스 자산으로 변환합니다."
             />
             <FeatureCard 
@@ -231,10 +217,10 @@ export default function LandingPage() {
       <section className="py-24 px-6 text-center">
         <div className="container mx-auto max-w-4xl bg-linear-to-b from-blue-50 to-white p-12 md:p-20 rounded-[60px] border border-blue-100 shadow-2xl shadow-blue-100">
           <h2 className="text-3xl md:text-4xl font-black mb-6 break-keep">
-            이미 수천 명이 자신의 'Intent'로 <br />
-            데이터 기본소득을 얻고 있습니다.
+            자신의 'Intent'로 <br />
+            데이터 기본소득을 얻으세요.
           </h2>
-          <p className="text-xl text-slate-600 mb-10">지금, 당신의 데이터 기본소득 권리를 찾으세요.</p>
+          <p className="text-xl text-slate-600 mb-10"></p>
           
           {/* ✅ [수정] 하단 큰 버튼 로그인 링크 연결 */}
           <Link href="/login">
@@ -246,7 +232,7 @@ export default function LandingPage() {
           </Link>
           
           <p className="mt-8 text-slate-400 text-sm font-medium">
-            가입비 무료 | 언제든 중단 가능
+            
           </p>
         </div>
       </section>

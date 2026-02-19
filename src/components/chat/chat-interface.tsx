@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Send, Bot, User, Loader2, Plus, Coins } from "lucide-react";
+import { Send, Bot, User, Loader2, Plus, Coins, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import { IntentCard } from "./intent-card";
 import { AdCard } from "./ad-card";
@@ -299,25 +299,41 @@ export function ChatInterface({ userId }: { userId: string }) {
       </div>
 
       <div className="border-t p-4">
-        <div className="mx-auto flex max-w-2xl gap-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={() => setComposing(true)}
-            onCompositionEnd={() => setComposing(false)}
-            placeholder="메시지를 입력하세요..."
-            className="min-h-[44px] max-h-32 resize-none"
-            rows={1}
-          />
-          <Button
-            onClick={handleSend}
-            size="icon"
-            disabled={!input.trim() || isLoading}
-            className="shrink-0"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+        <div className="mx-auto max-w-2xl">
+          {dailyStatus && dailyStatus.remainingPoints <= 0 ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/40">
+              <CalendarClock className="h-5 w-5 shrink-0 text-amber-500" />
+              <div>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                  오늘 기본소득 한도({dailyStatus.maxPoints.toLocaleString()}P)를 모두 사용하셨어요!
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                  내일 자정 이후에 다시 채팅하시면 기본소득을 적립하실 수 있습니다.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onCompositionStart={() => setComposing(true)}
+                onCompositionEnd={() => setComposing(false)}
+                placeholder="메시지를 입력하세요..."
+                className="min-h-[44px] max-h-32 resize-none"
+                rows={1}
+              />
+              <Button
+                onClick={handleSend}
+                size="icon"
+                disabled={!input.trim() || isLoading}
+                className="shrink-0"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
