@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { EmbeddingService } from "./embedding.service";
+import { invalidateCache, CacheKeys } from "@/lib/cache";
 
 // ── 상수 ─────────────────────────────────────────────────────────────
 const VECTOR_TOP_N = 50;          // DB 단 1차 필터링: 코사인 유사도 상위 N개
@@ -140,7 +141,12 @@ export class SemanticScorer {
   }
 
   private static tokenize(text: string): string[] {
-    return text.toLowerCase().split(/[\s,./·\-_()]+/).filter((t) => t.length >= 2);
+    const JOSA = /(을|를|이|가|은|는|의|에|에서|으로|로|과|와|도|만|부터|까지|한테|께)$/;
+    return text
+      .toLowerCase()
+      .split(/[\s,./·\-_()\[\]]+/)
+      .map((t) => t.replace(JOSA, ""))
+      .filter((t) => t.length >= 2);
   }
 }
 
@@ -198,40 +204,41 @@ export class MatchingService {
     // 임베딩이 없는 캠페인은 이 단계에서 제외되므로 별도 폴백 실행
     const vectorStr = EmbeddingService.toVectorLiteral(intentEmbedding);
 
-    const vectorCandidates = await prisma.$queryRaw<VectorCandidateRow[]>(
-      Prisma.sql`
-        SELECT
-          id,
-          title,
-          category,
-          keywords,
-          url,
-          "siteName",
-          budget,
-          spent,
-          "costPerMatch",
-          (1 - (embedding <=> ${vectorStr}::vector))::float8 AS vector_similarity
-        FROM "Campaign"
-        WHERE
-          status    = 'active'
-          AND "endDate" >= NOW()
-          AND spent < budget
-          AND embedding IS NOT NULL
-        ORDER BY embedding <=> ${vectorStr}::vector
-        LIMIT ${VECTOR_TOP_N}
-      `
-    );
+    const [vectorCandidates, legacyCandidates] = await Promise.all([
+      prisma.$queryRaw<VectorCandidateRow[]>(
+        Prisma.sql`
+          SELECT
+            id,
+            title,
+            category,
+            keywords,
+            url,
+            "siteName",
+            budget,
+            spent,
+            "costPerMatch",
+            (1 - (embedding <=> ${vectorStr}::vector))::float8 AS vector_similarity
+          FROM "Campaign"
+          WHERE
+            status    = 'active'
+            AND "endDate" >= NOW()
+            AND spent < budget
+            AND embedding IS NOT NULL
+          ORDER BY embedding <=> ${vectorStr}::vector
+          LIMIT ${VECTOR_TOP_N}
+        `
+      ),
+      // 임베딩 없는 캠페인은 항상 레거시 검색으로 병렬 처리
+      this.fetchLegacyCandidates(intent.category, intent.keyword),
+    ]);
 
-    // 임베딩 없는 캠페인 폴백: 카테고리/키워드 기반 전통 검색
-    const legacyCandidates =
-      vectorCandidates.length === 0
-        ? await this.fetchLegacyCandidates(intent.category, intent.keyword)
-        : [];
-
-    // 유효한 캠페인 통합 (벡터 후보 우선)
+    // 유효한 캠페인 통합 (벡터 후보 우선, ID 기준 중복 제거)
+    const vectorIds = new Set(vectorCandidates.map((c) => c.id));
     const allCandidates: VectorCandidateRow[] = [
       ...vectorCandidates,
-      ...legacyCandidates.map((c) => ({ ...c, vector_similarity: -1 })), // -1: 폴백 표시
+      ...legacyCandidates
+        .filter((c) => !vectorIds.has(c.id))
+        .map((c) => ({ ...c, vector_similarity: -1 })), // -1: 폴백 표시
     ];
 
     if (allCandidates.length === 0) return [];
@@ -259,30 +266,25 @@ export class MatchingService {
 
     scored.sort((a, b) => b.finalScore - a.finalScore);
 
-    // ── Step 5: Match 레코드 생성 ──────────────────────────────────
-    const matches = [];
-    for (const { campaign, finalScore } of scored) {
-      const reward = Math.round(campaign.costPerMatch * finalScore);
+    // ── Step 5: Match 레코드 일괄 생성 (createMany → 단일 INSERT) ─
+    if (scored.length === 0) return 0;
 
-      const match = await prisma.match.create({
-        data: {
-          intentId: intent.id,
-          campaignId: campaign.id,
-          score: finalScore,
-          reward,
-        },
-      });
-      matches.push(match);
-    }
+    await prisma.match.createMany({
+      data: scored.map(({ campaign, finalScore }) => ({
+        intentId: intent.id,
+        campaignId: campaign.id,
+        score: finalScore,
+        reward: Math.round(campaign.costPerMatch * finalScore),
+      })),
+      skipDuplicates: true,
+    });
 
-    if (matches.length > 0) {
-      await prisma.intent.update({
-        where: { id: intentId },
-        data: { status: "matched" },
-      });
-    }
+    await prisma.intent.update({
+      where: { id: intentId },
+      data: { status: "matched" },
+    });
 
-    return matches;
+    return scored.length;
   }
 
   /**
@@ -341,18 +343,20 @@ export class MatchingService {
     );
   }
 
-  // ── 사용자 전체 의도 매칭 ──────────────────────────────────────────
+  // ── 사용자 전체 의도 매칭 (병렬 처리) ────────────────────────────
   static async runMatchingForUser(userId: string) {
     const activeIntents = await prisma.intent.findMany({
       where: { userId, status: "active", isCommercial: true },
+      select: { id: true },
     });
 
-    const allMatches = [];
-    for (const intent of activeIntents) {
-      const matches = await this.matchIntentToCampaigns(intent.id);
-      allMatches.push(...matches);
-    }
-    return allMatches;
+    const results = await Promise.allSettled(
+      activeIntents.map((intent) => this.matchIntentToCampaigns(intent.id))
+    );
+
+    return results
+      .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled")
+      .reduce((sum, r) => sum + r.value, 0);
   }
 
   // ── 매칭 수락 (원자적 처리) ──────────────────────────────────────
@@ -381,6 +385,8 @@ export class MatchingService {
           type: "earn",
           amount: match.reward,
           balance: user.points,
+          source: "match_accept",
+          refId: match.id,
           metadata: {
             source: "match_accept",
             matchId: match.id,
@@ -391,6 +397,8 @@ export class MatchingService {
         },
       });
     });
+
+    await invalidateCache(CacheKeys.balance(userId));
 
     return match;
   }

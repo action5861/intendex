@@ -1,5 +1,7 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ExtractedIntent } from "@/types";
+import { EmbeddingService } from "./embedding.service";
 
 const CONFIDENCE_THRESHOLD = 0.7;
 
@@ -37,6 +39,25 @@ export class IntentService {
       })
     );
 
+    // Fire-and-forget: 상업적 Intent에 대해 임베딩을 미리 생성해 DB에 저장.
+    // 다음 매칭 실행 시 getOrCreateIntentEmbedding이 DB 캐시 히트 → API 호출 생략.
+    const commercialIntents = created.filter((i) => i.isCommercial);
+    if (commercialIntents.length > 0) {
+      const texts = commercialIntents.map((i) => EmbeddingService.buildIntentText(i));
+      EmbeddingService.embedBatch(texts)
+        .then((embeddings) =>
+          Promise.allSettled(
+            commercialIntents.map((intent, idx) => {
+              const vectorStr = EmbeddingService.toVectorLiteral(embeddings[idx]);
+              return prisma.$executeRaw(
+                Prisma.sql`UPDATE "Intent" SET embedding = ${vectorStr}::vector WHERE id = ${intent.id}`
+              );
+            })
+          )
+        )
+        .catch((err) => console.error("[IntentService] 임베딩 사전 생성 실패:", err));
+    }
+
     return created;
   }
 
@@ -63,10 +84,18 @@ export class IntentService {
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
-        include: {
-          matches: {
-            include: { campaign: true },
-          },
+        select: {
+          id: true,
+          category: true,
+          subcategory: true,
+          keyword: true,
+          description: true,
+          confidence: true,
+          isCommercial: true,
+          pointValue: true,
+          status: true,
+          createdAt: true,
+          expiresAt: true,
         },
       }),
       prisma.intent.count({ where }),
