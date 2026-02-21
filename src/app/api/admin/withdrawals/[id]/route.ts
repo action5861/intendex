@@ -63,6 +63,8 @@ export async function PATCH(
           type: "earn",
           amount: transaction.amount,
           balance: updated.points,
+          source: "withdrawal_refund",
+          refId: id,
           metadata: { source: "withdrawal_refund", originalTransactionId: id },
         },
       });

@@ -96,7 +96,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // 임베딩 생성 및 저장 (실패해도 캠페인 생성은 성공으로 처리)
+  // 임베딩 생성 및 저장
+  let embeddingWarning: string | undefined;
   try {
     const text = EmbeddingService.buildCampaignText({ title, description, category, keywords });
     const embedding = await EmbeddingService.embed(text);
@@ -106,7 +107,11 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     console.error("[Campaign POST] 임베딩 생성 실패:", err);
+    embeddingWarning = "캠페인은 등록됐지만 AI 임베딩 생성에 실패했습니다. 매칭 품질이 저하될 수 있습니다.";
   }
 
-  return NextResponse.json(campaign, { status: 201 });
+  return NextResponse.json(
+    { ...campaign, _warning: embeddingWarning },
+    { status: 201 }
+  );
 }

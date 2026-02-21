@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { X, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
@@ -37,6 +38,24 @@ export function DwellTimer({
   const remaining = Math.max(0, DWELL_DURATION - elapsed);
   const progress = Math.min(elapsed / DWELL_DURATION, 1);
 
+  // Intendex가 보이면(active) 정지, 숨겨지면(광고 탭에 있으면) 진행
+  const [isPaused, setIsPaused] = useState(true);
+
+  // 화면 이탈 감지 (Visibility API)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPaused(!document.hidden);
+    };
+
+    // 초기 상태 설정 — 마운트 시 Intendex가 항상 활성 탭이므로 정지
+    setIsPaused(!document.hidden);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // 매 초마다 탭 상태 확인 + 타이머 증가
   useEffect(() => {
     if (phase !== "dwelling" && phase !== "ready") return;
@@ -49,6 +68,11 @@ export function DwellTimer({
           // 60초 전에 탭 닫음 → 실패
           clearInterval(interval);
           setPhase("early_close");
+          return;
+        }
+
+        // 화면 이탈 시(다른 탭, 브라우저 최소화 등) 타이머 일시정지
+        if (isPaused) {
           return;
         }
 
@@ -71,7 +95,7 @@ export function DwellTimer({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [phase, windowRef]);
+  }, [phase, windowRef, isPaused]);
 
   // completed 되면 포인트 지급
   useEffect(() => {
@@ -90,29 +114,37 @@ export function DwellTimer({
   if (phase === "early_close") {
     return (
       <div className="fixed bottom-6 right-6 z-50">
-        <Card className="w-72 border-red-200 bg-red-50 shadow-lg dark:border-red-800 dark:bg-red-950/80">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-red-500 mt-0.5" />
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="w-72 overflow-hidden rounded-2xl border border-red-200/50 bg-gradient-to-br from-red-50/90 to-amber-50/80 dark:border-red-900/30 dark:from-red-950/80 dark:to-orange-950/40 backdrop-blur-xl shadow-lg shadow-red-500/10"
+        >
+          <div className="absolute top-0 right-0 p-24 bg-red-400/10 dark:bg-red-500/10 blur-[40px] rounded-full pointer-events-none -mr-12 -mt-12" />
+          <div className="relative z-10 p-5">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-400 to-orange-500 text-white shadow-inner shadow-red-500/20">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-red-900 dark:text-red-100">
+                <p className="text-[15px] font-bold text-red-950 dark:text-red-100 mb-1">
                   체류 시간 부족
                 </p>
-                <p className="mt-1 text-xs text-red-700 dark:text-red-300">
-                  {remaining}초 더 머물러야 했어요. 사이트에서 60초 이상 체류한 후 닫아야 포인트가 지급됩니다.
+                <p className="text-[13px] font-medium text-red-800/80 dark:text-red-300/80 leading-relaxed">
+                  {remaining}초 더 머물러야 했어요. 처음 접속한 탭에서 60초 이상 진성 체류해야 포인트가 지급됩니다.
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-2 text-xs"
-                  onClick={onCancel}
-                >
-                  확인
-                </Button>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="sm"
+                    className="h-8 px-4 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                    onClick={onCancel}
+                  >
+                    확인
+                  </Button>
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -121,27 +153,34 @@ export function DwellTimer({
   if (phase === "ready") {
     return (
       <div className="fixed bottom-6 right-6 z-50">
-        <Card className="w-72 border-emerald-200 bg-emerald-50 shadow-lg dark:border-emerald-800 dark:bg-emerald-950/80">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="w-72 overflow-hidden rounded-2xl border border-amber-200/50 bg-gradient-to-br from-amber-50/90 to-orange-50/80 dark:border-amber-800/30 dark:from-amber-950/80 dark:to-orange-950/40 backdrop-blur-xl shadow-lg shadow-amber-500/10"
+        >
+          <div className="absolute top-0 right-0 p-24 bg-amber-400/10 dark:bg-amber-500/10 blur-[40px] rounded-full pointer-events-none -mr-12 -mt-12" />
+          <div className="relative z-10 p-5">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-inner shadow-amber-500/20">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                <p className="text-[15px] font-bold text-amber-950 dark:text-amber-100 mb-1">
                   60초 체류 완료!
                 </p>
-                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
-                  이제 사이트 탭을 닫고 돌아오시면 <span className="font-bold">{pointValue.toLocaleString()}P</span>가 지급됩니다.
+                <p className="text-[13px] font-medium text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                  이제 이전 광고 탭을 닫으시면 <span className="font-bold text-amber-600 dark:text-amber-400">{pointValue.toLocaleString()}P</span>가 즉시 지급됩니다.
                 </p>
                 <button
                   onClick={onCancel}
-                  className="mt-2 text-xs text-muted-foreground hover:text-foreground underline"
+                  className="mt-3 text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 underline underline-offset-2 transition-colors"
                 >
                   포인트 포기하기
                 </button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -149,60 +188,88 @@ export function DwellTimer({
   // 체류 중 (카운트다운)
   return (
     <div className="fixed bottom-6 right-6 z-50">
-      <Card className="w-56 border-emerald-200 bg-white shadow-lg dark:border-emerald-800 dark:bg-gray-900">
-        <CardContent className="flex flex-col items-center gap-3 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="w-56 overflow-hidden rounded-2xl border border-slate-200/60 bg-white/80 dark:border-slate-800/50 dark:bg-slate-900/80 backdrop-blur-xl shadow-xl shadow-slate-900/5"
+      >
+        <div className="relative z-10 p-4 flex flex-col items-center gap-4">
           <div className="flex w-full items-center justify-between">
-            <p className="text-xs font-medium text-muted-foreground truncate max-w-[140px]">
+            <p className="text-[13px] font-bold text-slate-700 dark:text-slate-300 truncate max-w-[140px]">
               {siteName}
             </p>
             <button
               onClick={onCancel}
-              className="text-muted-foreground hover:text-foreground"
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
           <div className="relative flex items-center justify-center">
-            <svg width="88" height="88" className="-rotate-90">
+            <svg width="88" height="88" className="-rotate-90 filter drop-shadow-md">
               <circle
                 cx="44"
                 cy="44"
                 r={radius}
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="4"
-                className="text-muted/20"
+                strokeWidth="5"
+                className="text-slate-100 dark:text-slate-800"
               />
               <circle
                 cx="44"
                 cy="44"
                 r={radius}
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
+                stroke="url(#gradient)"
+                strokeWidth="5"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
                 strokeDashoffset={strokeDashoffset}
-                className="text-emerald-500 transition-all duration-1000"
+                className="transition-all duration-1000 ease-linear"
               />
+              <defs>
+                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor={!isPaused ? "#cbd5e1" : "#fbbf24"} />
+                  <stop offset="100%" stopColor={!isPaused ? "#94a3b8" : "#f59e0b"} />
+                </linearGradient>
+              </defs>
             </svg>
-            <span className="absolute text-lg font-bold tabular-nums">
-              {remaining}s
-            </span>
+            <div className="absolute flex flex-col items-center justify-center">
+              <span className={`text-[22px] font-black tabular-nums tracking-tighter ${!isPaused ? "text-slate-400" : "text-amber-500"}`}>
+                {remaining}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 -mt-1 uppercase">sec</span>
+            </div>
           </div>
 
-          <div className="text-center space-y-1">
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <Clock className="h-3 w-3" />
-              사이트에 체류 중...
-            </p>
-            <p className="text-[10px] text-muted-foreground/70">
-              60초 체류 후 사이트를 닫으면 {pointValue.toLocaleString()}P 지급
+          <div className="text-center space-y-1 mt-1 w-full bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80">
+            {!isPaused ? (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5 font-bold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-500"></span>
+                </span>
+                광고 탭으로 이동하세요
+              </p>
+            ) : (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1.5 font-bold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                광고 탭 체류 중...
+              </p>
+            )}
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-[1.3] mt-1.5">
+              {isPaused
+                ? "광고 탭에 머물러야\n시간이 쌓입니다."
+                : `60초 완료 후 이 창으로\n돌아와 광고를 닫으면\n${pointValue.toLocaleString()}P 지급`}
             </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </motion.div>
     </div>
   );
 }

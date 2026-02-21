@@ -1,0 +1,58 @@
+version: "3.9"
+
+# 2단계 성능 인프라: Redis (캐싱) + PgBouncer (Connection Pooling)
+#
+# 실행: docker compose -f docker-compose.dev.yml up -d
+# 종료: docker compose -f docker-compose.dev.yml down
+
+services:
+  # ── Redis: 캐싱 레이어 ────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── PgBouncer: DB Connection Pooling ─────────────────────────
+  # PostgreSQL이 Windows 호스트에서 실행 중이므로 host.docker.internal 사용
+  pgbouncer:
+    image: bitnami/pgbouncer:latest
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    environment:
+      POSTGRESQL_HOST: host.docker.internal
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: ${DB_NAME:-intendex}
+      POSTGRESQL_USERNAME: ${DB_USER:-postgres}
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD env var is required}
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_POOL_MODE: transaction       # 트랜잭션 단위 connection 재사용
+      PGBOUNCER_MAX_CLIENT_CONN: 1000        # 앱에서 최대 연결 수
+      PGBOUNCER_DEFAULT_POOL_SIZE: 20        # 실제 PostgreSQL 연결 수
+      PGBOUNCER_MIN_POOL_SIZE: 5
+      PGBOUNCER_RESERVE_POOL_SIZE: 5
+      PGBOUNCER_SERVER_RESET_QUERY: DISCARD ALL
+      PGBOUNCER_AUTH_TYPE: scram-sha-256
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux Docker 호환
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis_data:

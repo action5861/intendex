@@ -74,6 +74,8 @@ model Conversation {
   intents   Intent[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model Message {
@@ -83,6 +85,8 @@ model Message {
   role           String       // "user" | "assistant"
   content        String       @db.Text
   createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
 }
 
 model Intent {
@@ -107,6 +111,8 @@ model Intent {
   @@index([userId])
   @@index([category])
   @@index([status])
+  @@index([expiresAt])
+  @@index([userId, status, createdAt(sort: Desc)])
 }
 
 model Campaign {
@@ -145,6 +151,7 @@ model Match {
 
   @@unique([intentId, campaignId])
   @@index([status])
+  @@index([intentId, status])
 }
 
 model Transaction {
@@ -154,11 +161,14 @@ model Transaction {
   type      String   // "earn" | "withdraw" | "convert"
   amount    Int
   balance   Int
+  source    String?  // "intent_reward" | "dwell" | "match_accept" | "signup_bonus" | "settings_stay_bonus" | "withdraw" | "withdrawal_refund"
+  refId     String?  // intentId, matchId 등 참조 ID
   metadata  Json?
   createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([type])
+  @@index([userId, source, createdAt(sort: Desc)])
 }
 
 // 카테고리 및 매칭 사이트 (분야별 사이트 리스트)

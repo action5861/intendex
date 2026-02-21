@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { checkRateLimit } from "@/lib/cache";
 
 const registerSchema = z.object({
   name: z.string().min(1, "이름을 입력해 주세요"),
@@ -9,7 +10,23 @@ const registerSchema = z.object({
   password: z.string().min(6, "비밀번호는 6자 이상이어야 합니다"),
 });
 
+function getClientIp(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("x-real-ip") ?? "unknown";
+}
+
 export async function POST(req: Request) {
+  // IP rate limit: 시간당 5회 (봇 대량 계정 생성 방어)
+  const ip = getClientIp(req);
+  const rl = await checkRateLimit(`reg:${ip}`, 3600, 5);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "잠시 후 다시 시도해 주세요. (시간당 5회 제한)" },
+      { status: 429, headers: { "Retry-After": String(rl.resetIn) } }
+    );
+  }
+
   try {
     const body = await req.json();
     const parsed = registerSchema.safeParse(body);
@@ -44,6 +61,7 @@ export async function POST(req: Request) {
           type: "earn",
           amount: 5000,
           balance: 5000,
+          source: "signup_bonus",
           metadata: { source: "signup_bonus" },
         },
       });

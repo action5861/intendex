@@ -1,12 +1,19 @@
 import { prisma } from "@/lib/prisma";
+import { cachedQuery, invalidateCache, CacheKeys } from "@/lib/cache";
 
 export class RewardService {
   static async getUserBalance(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { points: true },
-    });
-    return user?.points ?? 0;
+    return cachedQuery(
+      CacheKeys.balance(userId),
+      30, // 30초 TTL
+      async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { points: true },
+        });
+        return user?.points ?? 0;
+      }
+    );
   }
 
   static async getTransactionHistory(
@@ -34,39 +41,39 @@ export class RewardService {
   }
 
   static async getDailyIntentStats(userId: string) {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    return cachedQuery(
+      CacheKeys.dailyStats(userId),
+      60, // 60초 TTL
+      async () => {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
 
-    const [aggregate, countResult] = await Promise.all([
-      prisma.transaction.aggregate({
-        where: {
-          userId,
-          type: "earn",
-          createdAt: { gte: todayStart },
-          metadata: {
-            path: ["source"],
-            equals: "intent_reward",
-          },
-        },
-        _sum: { amount: true },
-      }),
-      prisma.transaction.count({
-        where: {
-          userId,
-          type: "earn",
-          createdAt: { gte: todayStart },
-          metadata: {
-            path: ["source"],
-            equals: "intent_reward",
-          },
-        },
-      }),
-    ]);
+        const [aggregate, countResult] = await Promise.all([
+          prisma.transaction.aggregate({
+            where: {
+              userId,
+              type: "earn",
+              source: "intent_reward",
+              createdAt: { gte: todayStart },
+            },
+            _sum: { amount: true },
+          }),
+          prisma.transaction.count({
+            where: {
+              userId,
+              type: "earn",
+              source: "intent_reward",
+              createdAt: { gte: todayStart },
+            },
+          }),
+        ]);
 
-    return {
-      totalPoints: aggregate._sum.amount ?? 0,
-      count: countResult,
-    };
+        return {
+          totalPoints: aggregate._sum.amount ?? 0,
+          count: countResult,
+        };
+      }
+    );
   }
 
   static async awardIntentReward(
@@ -87,6 +94,8 @@ export class RewardService {
           type: "earn",
           amount: pointValue,
           balance: updatedUser.points,
+          source: "intent_reward",
+          refId: intentId,
           metadata: {
             source: "intent_reward",
             intentId,
@@ -97,6 +106,11 @@ export class RewardService {
 
       return [updatedUser, newTransaction] as const;
     });
+
+    await invalidateCache(
+      CacheKeys.balance(userId),
+      CacheKeys.dailyStats(userId)
+    );
 
     return { newBalance: user.points, transactionId: transaction.id };
   }
@@ -132,6 +146,7 @@ export class RewardService {
         type: "withdraw",
         amount,
         balance: updated.points,
+        source: "withdraw",
         metadata: {
           bank: accountInfo.bank,
           accountNumber: accountInfo.accountNumber,
@@ -140,6 +155,8 @@ export class RewardService {
         },
       },
     });
+
+    await invalidateCache(CacheKeys.balance(userId));
 
     return { newBalance: updated.points };
   }

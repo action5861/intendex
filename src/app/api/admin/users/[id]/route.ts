@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateCache, CacheKeys } from "@/lib/cache";
 
 export async function GET(
   req: NextRequest,
@@ -125,6 +126,11 @@ export async function PATCH(
       points: true,
     },
   });
+
+  // 포인트가 변경됐으면 해당 사용자 balance 캐시 무효화
+  if (typeof body.pointsAdjustment === "number" && body.pointsAdjustment !== 0) {
+    await invalidateCache(CacheKeys.balance(id));
+  }
 
   return NextResponse.json(updated);
 }

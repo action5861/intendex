@@ -42,6 +42,7 @@ export async function PATCH(
 
   // 임베딩 관련 필드(title/description/category/keywords)가 바뀐 경우에만 재생성
   const needsReembed = body.title || body.description || body.category || body.keywords;
+  let embeddingWarning: string | undefined;
   if (needsReembed) {
     try {
       const text = EmbeddingService.buildCampaignText({
@@ -57,10 +58,11 @@ export async function PATCH(
       );
     } catch (err) {
       console.error("[Campaign PATCH] 임베딩 재생성 실패:", err);
+      embeddingWarning = "캠페인은 수정됐지만 AI 임베딩 재생성에 실패했습니다. 매칭 품질이 저하될 수 있습니다.";
     }
   }
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, _warning: embeddingWarning });
 }
 
 export async function DELETE(

@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateCache, CacheKeys } from "@/lib/cache";
 import { NextResponse } from "next/server";
 
 const DAILY_MAX_POINTS = 1000;
@@ -48,10 +49,7 @@ export async function POST(req: Request) {
       userId,
       type: "earn",
       createdAt: { gte: windowStart },
-      OR: [
-        { metadata: { path: ["source"], equals: "intent_reward" } },
-        { metadata: { path: ["source"], equals: "dwell" } },
-      ],
+      source: { in: ["intent_reward", "dwell"] },
     },
     select: { metadata: true },
   });
@@ -76,11 +74,8 @@ export async function POST(req: Request) {
     where: {
       userId,
       type: "earn",
+      source: "intent_reward",
       createdAt: { gte: todayStart },
-      metadata: {
-        path: ["source"],
-        equals: "intent_reward",
-      },
     },
     _sum: { amount: true },
   });
@@ -110,6 +105,7 @@ export async function POST(req: Request) {
         type: "earn",
         amount: awardPoints,
         balance: updatedUser.points,
+        source: "intent_reward",
         metadata: {
           source: "intent_reward",
           url,
@@ -120,6 +116,11 @@ export async function POST(req: Request) {
 
     return [updatedUser, newTransaction] as const;
   });
+
+  await invalidateCache(
+    CacheKeys.balance(userId),
+    CacheKeys.dailyStats(userId)
+  );
 
   return NextResponse.json({
     success: true,

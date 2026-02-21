@@ -10,6 +10,21 @@ export function StayBonus() {
   const [hidden, setHidden] = useState(false);
   const calledRef = useRef(false);
 
+  const claimBonus = async () => {
+    try {
+      const res = await fetch("/api/rewards/stay-bonus", { method: "POST" });
+      const data = await res.json();
+      if (data.granted) {
+        setGranted(true);
+        toast.success("설정 체류 보너스 1,000P가 지급되었습니다!");
+      } else if (data.already) {
+        setHidden(true);
+      }
+    } catch {
+      // silently fail
+    }
+  };
+
   useEffect(() => {
     if (granted || calledRef.current) return;
 
@@ -29,21 +44,6 @@ export function StayBonus() {
 
     return () => clearInterval(interval);
   }, [granted]);
-
-  const claimBonus = async () => {
-    try {
-      const res = await fetch("/api/rewards/stay-bonus", { method: "POST" });
-      const data = await res.json();
-      if (data.granted) {
-        setGranted(true);
-        toast.success("설정 체류 보너스 1,000P가 지급되었습니다!");
-      } else if (data.already) {
-        setHidden(true);
-      }
-    } catch {
-      // silently fail
-    }
-  };
 
   if (hidden) return null;
 

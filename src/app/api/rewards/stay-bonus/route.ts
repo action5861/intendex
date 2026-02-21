@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateCache, CacheKeys } from "@/lib/cache";
 
 export async function POST() {
   const session = await auth();
@@ -15,7 +16,7 @@ export async function POST() {
     where: {
       userId,
       type: "earn",
-      metadata: { path: ["source"], equals: "settings_stay_bonus" },
+      source: "settings_stay_bonus",
     },
   });
 
@@ -35,9 +36,12 @@ export async function POST() {
       type: "earn",
       amount: 1000,
       balance: updated.points,
+      source: "settings_stay_bonus",
       metadata: { source: "settings_stay_bonus" },
     },
   });
+
+  await invalidateCache(CacheKeys.balance(userId));
 
   return NextResponse.json({ granted: true, newBalance: updated.points });
 }
