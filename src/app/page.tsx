@@ -109,7 +109,7 @@ export default function LandingPage() {
               >
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-100 text-blue-700 font-semibold mb-8 text-sm shadow-sm md:mx-0 mx-auto">
                   <Sparkles size={16} />
-                  <span>새로운 데이터 패러다임의 시작</span>
+                  <span>새로운 데이터 기본소득의 시작</span>
                 </div>
 
                 <h1 className="text-5xl md:text-7xl font-extrabold leading-[1.1] tracking-tight break-keep text-slate-900">
@@ -118,7 +118,7 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="mt-6 text-lg md:text-xl text-slate-500 font-medium break-keep max-w-2xl mx-auto lg:mx-0">
-                  하루 60초, AI와 간단한 대화만으로 당신만의 데이터 기본소득을 얻으세요. 당신의 일상이 가치로 환산됩니다.
+                  하루 60초, AI와 간단한 대화만으로 당신만의 데이터 기본소득을 얻으세요. 당신의 의도가 가치로 환산됩니다.
                 </p>
 
                 <div className="mt-10 flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">

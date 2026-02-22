@@ -7,21 +7,23 @@ import { Button } from "@/components/ui/button";
 import { X, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 
 const DWELL_DURATION = 60;
+const PARTIAL_DWELL_MIN = 20;
 
 interface DwellTimerProps {
   siteName: string;
   siteUrl: string;
   pointValue: number;
   windowRef: Window | null;
-  onComplete: () => void;
+  onComplete: (elapsedSeconds: number) => void;
   onCancel: () => void;
 }
 
 type TimerPhase =
-  | "dwelling"       // 사이트에서 체류 중 (60초 카운트)
-  | "early_close"    // 60초 전에 탭 닫음 → 실패
-  | "ready"          // 60초 달성, 사이트 닫으면 포인트 지급 대기
-  | "completed";     // 사이트 닫고 복귀 → 포인트 지급
+  | "dwelling"          // 사이트에서 체류 중 (60초 카운트)
+  | "early_close"       // 20초 미만 탭 닫음 → 실패
+  | "partial_complete"  // 20~59초 탭 닫음 → 부분 포인트 지급
+  | "ready"             // 60초 달성, 사이트 닫으면 포인트 지급 대기
+  | "completed";        // 사이트 닫고 복귀 → 전체 포인트 지급
 
 export function DwellTimer({
   siteName,
@@ -33,7 +35,10 @@ export function DwellTimer({
 }: DwellTimerProps) {
   const [elapsed, setElapsed] = useState(0);
   const [phase, setPhase] = useState<TimerPhase>("dwelling");
+  const [earnedPoints, setEarnedPoints] = useState(0);
+  const [closedAtSeconds, setClosedAtSeconds] = useState(0);
   const completedRef = useRef(false);
+  const elapsedRef = useRef(0);
 
   const remaining = Math.max(0, DWELL_DURATION - elapsed);
   const progress = Math.min(elapsed / DWELL_DURATION, 1);
@@ -65,9 +70,18 @@ export function DwellTimer({
 
       if (phase === "dwelling") {
         if (isClosed) {
-          // 60초 전에 탭 닫음 → 실패
           clearInterval(interval);
-          setPhase("early_close");
+          const cur = elapsedRef.current;
+          if (cur >= PARTIAL_DWELL_MIN) {
+            // 20~59초 → 부분 포인트 지급
+            const partial = Math.floor(pointValue * cur / DWELL_DURATION);
+            setClosedAtSeconds(cur);
+            setEarnedPoints(partial);
+            setPhase("partial_complete");
+          } else {
+            // 20초 미만 → 실패
+            setPhase("early_close");
+          }
           return;
         }
 
@@ -78,6 +92,7 @@ export function DwellTimer({
 
         setElapsed((prev) => {
           const next = prev + 1;
+          elapsedRef.current = next;
           if (next >= DWELL_DURATION) {
             // 60초 달성 → ready 상태로 전환
             setPhase("ready");
@@ -97,20 +112,23 @@ export function DwellTimer({
     return () => clearInterval(interval);
   }, [phase, windowRef, isPaused]);
 
-  // completed 되면 포인트 지급
+  // completed / partial_complete 되면 서버에 경과시간 전달 (포인트는 서버가 계산)
   useEffect(() => {
     if (phase === "completed" && !completedRef.current) {
       completedRef.current = true;
-      onComplete();
+      onComplete(DWELL_DURATION);
+    } else if (phase === "partial_complete" && !completedRef.current) {
+      completedRef.current = true;
+      onComplete(closedAtSeconds);
     }
-  }, [phase, onComplete]);
+  }, [phase, onComplete, closedAtSeconds]);
 
   // SVG circular progress
   const radius = 36;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
-  // 60초 전에 탭 닫음 → 실패
+  // 20초 미만에 탭 닫음 → 실패
   if (phase === "early_close") {
     return (
       <div className="fixed bottom-6 right-6 z-50">
@@ -130,12 +148,59 @@ export function DwellTimer({
                   체류 시간 부족
                 </p>
                 <p className="text-[13px] font-medium text-red-800/80 dark:text-red-300/80 leading-relaxed">
-                  {remaining}초 더 머물러야 했어요. 처음 접속한 탭에서 60초 이상 진성 체류해야 포인트가 지급됩니다.
+                  최소 20초 이상 체류해야 부분 포인트가 지급됩니다. (20초 미만은 포인트가 지급되지 않습니다)
                 </p>
                 <div className="mt-3 flex justify-end">
                   <Button
                     size="sm"
                     className="h-8 px-4 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                    onClick={onCancel}
+                  >
+                    확인
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // 20~59초 체류 후 탭 닫음 → 부분 포인트 지급
+  if (phase === "partial_complete") {
+    const percentage = Math.round((earnedPoints / pointValue) * 100);
+    return (
+      <div className="fixed bottom-6 right-6 z-50">
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="w-72 overflow-hidden rounded-2xl border border-sky-200/50 bg-gradient-to-br from-sky-50/90 to-blue-50/80 dark:border-sky-900/30 dark:from-sky-950/80 dark:to-blue-950/40 backdrop-blur-xl shadow-lg shadow-sky-500/10"
+        >
+          <div className="absolute top-0 right-0 p-24 bg-sky-400/10 dark:bg-sky-500/10 blur-[40px] rounded-full pointer-events-none -mr-12 -mt-12" />
+          <div className="relative z-10 p-5">
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow-inner shadow-sky-500/20">
+                <Clock className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[15px] font-bold text-sky-950 dark:text-sky-100 mb-1">
+                  부분 포인트 획득!
+                </p>
+                <p className="text-[13px] font-medium text-sky-800/80 dark:text-sky-300/80 leading-relaxed">
+                  {closedAtSeconds}초 체류로{" "}
+                  <span className="font-bold text-sky-600 dark:text-sky-400">
+                    {earnedPoints.toLocaleString()}P
+                  </span>{" "}
+                  획득 ({percentage}%)
+                </p>
+                <p className="text-[11px] text-sky-600/60 dark:text-sky-400/60 mt-1">
+                  60초 체류 시 {pointValue.toLocaleString()}P 전액 지급
+                </p>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="sm"
+                    className="h-8 px-4 text-xs font-bold rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-sm"
                     onClick={onCancel}
                   >
                     확인
@@ -265,7 +330,7 @@ export function DwellTimer({
             <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-[1.3] mt-1.5">
               {isPaused
                 ? "광고 탭에 머물러야\n시간이 쌓입니다."
-                : `60초 완료 후 이 창으로\n돌아와 광고를 닫으면\n${pointValue.toLocaleString()}P 지급`}
+                : `20초 이상 체류 시 비례 포인트\n60초 완료 시 ${pointValue.toLocaleString()}P 전액 지급`}
             </p>
           </div>
         </div>

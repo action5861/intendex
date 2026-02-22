@@ -68,6 +68,7 @@ interface TimerState {
   siteName: string;
   siteUrl: string;
   pointValue: number;
+  dwellToken: string;
 }
 
 export function ChatInterface({ userId }: { userId: string }) {
@@ -81,6 +82,7 @@ export function ChatInterface({ userId }: { userId: string }) {
     siteName: "",
     siteUrl: "",
     pointValue: 0,
+    dwellToken: "",
   });
   const timerStateRef = useRef(timerState);
   // eslint-disable-next-line react-hooks/refs
@@ -128,9 +130,28 @@ export function ChatInterface({ userId }: { userId: string }) {
     }
   }, [messages]);
 
-  const handleVisitSite = useCallback((site: RecommendedSite, pointValue: number) => {
+  const handleVisitSite = useCallback(async (site: RecommendedSite, pointValue: number) => {
     if (timerState.active) {
       toast.error("이미 다른 사이트 체류 중입니다.");
+      return;
+    }
+
+    // 서버에서 토큰 발급 (maxPoints를 서버 DB에 기록)
+    let dwellToken = "";
+    try {
+      const res = await fetch("/api/rewards/dwell/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: site.url, siteName: site.name, maxPoints: pointValue }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "세션 시작에 실패했습니다.");
+        return;
+      }
+      dwellToken = data.token;
+    } catch {
+      toast.error("네트워크 오류가 발생했습니다.");
       return;
     }
 
@@ -146,18 +167,19 @@ export function ChatInterface({ userId }: { userId: string }) {
       siteName: site.name,
       siteUrl: site.url,
       pointValue,
+      dwellToken,
     });
   }, [timerState.active]);
 
-  const handleTimerComplete = useCallback(async () => {
-    const { siteUrl, siteName, pointValue } = timerStateRef.current;
-    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0 });
+  const handleTimerComplete = useCallback(async (elapsedSeconds: number) => {
+    const { dwellToken, siteUrl } = timerStateRef.current;
+    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0, dwellToken: "" });
 
     try {
-      const res = await fetch("/api/rewards/dwell", {
+      const res = await fetch("/api/rewards/dwell/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: siteUrl, siteName, pointValue }),
+        body: JSON.stringify({ token: dwellToken, elapsedSeconds }),
       });
 
       const data = await res.json();
@@ -175,7 +197,7 @@ export function ChatInterface({ userId }: { userId: string }) {
   }, [fetchDailyStatus]);
 
   const handleTimerCancel = useCallback(() => {
-    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0 });
+    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0, dwellToken: "" });
     windowRef.current = null;
     toast.info("사이트 체류가 취소되었습니다.");
   }, []);
@@ -183,7 +205,7 @@ export function ChatInterface({ userId }: { userId: string }) {
   const handleNewChat = useCallback(() => {
     setMessages([INITIAL_MESSAGE]);
     setVisitedSites(new Set());
-    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0 });
+    setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0, dwellToken: "" });
     windowRef.current = null;
   }, [setMessages]);
 

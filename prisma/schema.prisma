@@ -61,6 +61,7 @@ model User {
   intents       Intent[]
   transactions  Transaction[]
   conversations Conversation[]
+  dwellSessions DwellSession[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -184,6 +185,24 @@ model Category {
   updatedAt       DateTime   @updatedAt
 
   @@index([parentId])
+}
+
+model DwellSession {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url         String
+  siteName    String
+  maxPoints   Int       // 서버에서 결정 — 클라이언트 변조 불가
+  issuedAt    DateTime  @default(now())
+  expiresAt   DateTime  // 30분 TTL
+  completedAt DateTime? // null = 미완료
+  awarded     Int?      // 실제 지급 포인트 (null = 미완료)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 model Site {

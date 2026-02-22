@@ -46,7 +46,7 @@ export function AdCard({ site, visited, onVisit }: AdCardProps) {
             </p>
             {!visited && (
               <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-1.5 bg-amber-100/50 dark:bg-amber-900/30 inline-block px-1.5 py-0.5 rounded-md">
-                60초 체류 후 탭을 닫으면 포인트 지급
+                20초 이상 체류하면 비례 포인트 지급
               </p>
             )}
           </div>

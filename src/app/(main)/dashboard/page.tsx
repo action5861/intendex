@@ -27,6 +27,13 @@ export default async function DashboardPage() {
         where: { userId: session.user.id },
         orderBy: { createdAt: "desc" },
         take: 10,
+        select: {
+          id: true,
+          type: true,
+          amount: true,
+          source: true,
+          createdAt: true,
+        },
       }),
       prisma.intent.groupBy({
         by: ["category"],
@@ -38,7 +45,7 @@ export default async function DashboardPage() {
           userId: session.user.id,
           type: "earn",
           createdAt: { gte: todayStart },
-          metadata: { path: ["source"], equals: "intent_reward" },
+          source: { in: ["intent_reward", "dwell"] },
         },
         _sum: { amount: true },
       }),
@@ -60,6 +67,7 @@ export default async function DashboardPage() {
       id: t.id,
       type: t.type as "earn" | "withdraw" | "convert",
       amount: t.amount,
+      source: t.source ?? "",
       createdAt: t.createdAt,
     })),
   };

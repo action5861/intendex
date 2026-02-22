@@ -53,7 +53,7 @@ export class RewardService {
             where: {
               userId,
               type: "earn",
-              source: "intent_reward",
+              source: { in: ["intent_reward", "dwell"] },
               createdAt: { gte: todayStart },
             },
             _sum: { amount: true },
@@ -62,7 +62,7 @@ export class RewardService {
             where: {
               userId,
               type: "earn",
-              source: "intent_reward",
+              source: { in: ["intent_reward", "dwell"] },
               createdAt: { gte: todayStart },
             },
           }),

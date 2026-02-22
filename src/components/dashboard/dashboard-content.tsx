@@ -22,6 +22,7 @@ interface DashboardStats {
     id: string;
     type: "earn" | "withdraw" | "convert";
     amount: number;
+    source: string;
     createdAt: Date;
   }[];
 }
@@ -235,7 +236,10 @@ export function DashboardContent({ stats }: { stats: DashboardStats }) {
                       </div>
                       <div>
                         <p className="text-[15px] font-bold text-slate-800 dark:text-slate-200">
-                          {tx.type === "earn" ? "의도 데이터 보상" : tx.type === "withdraw" ? "포인트 출금" : "포인트 전환"}
+                          {tx.type === "withdraw" ? "포인트 출금"
+                            : tx.type === "convert" ? "포인트 전환"
+                            : tx.source === "dwell" ? "사이트 체류 보상"
+                            : "의도 데이터 보상"}
                         </p>
                         <p className="text-[13px] font-medium text-slate-500 dark:text-slate-400 mt-1">
                           {new Date(tx.createdAt).toLocaleDateString("ko-KR", { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
