@@ -44,16 +44,14 @@ export function DwellTimer({
   const progress = Math.min(elapsed / DWELL_DURATION, 1);
 
   // Intendex가 보이면(active) 정지, 숨겨지면(광고 탭에 있으면) 진행
-  const [isPaused, setIsPaused] = useState(true);
+  // 지연 초기화로 마운트 시 document.hidden 을 읽어 초기값 설정 (useEffect 내 동기 setState 제거)
+  const [isPaused, setIsPaused] = useState(() => !document.hidden);
 
   // 화면 이탈 감지 (Visibility API)
   useEffect(() => {
     const handleVisibilityChange = () => {
       setIsPaused(!document.hidden);
     };
-
-    // 초기 상태 설정 — 마운트 시 Intendex가 항상 활성 탭이므로 정지
-    setIsPaused(!document.hidden);
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {

@@ -12,7 +12,8 @@ import {
   TrendingUp,
   CheckCircle2,
   Cpu,
-  Sparkles
+  Sparkles,
+  Timer
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -218,33 +219,33 @@ export default function LandingPage() {
             <h2 className="text-4xl md:text-5xl font-extrabold mb-6 break-keep tracking-tight text-slate-900">
               어떻게 데이터 기본소득이 만들어지나요?
             </h2>
-            <p className="text-lg text-slate-500 max-w-2xl mx-auto font-medium">단 3단계만으로 당신의 일상이 매일 쌓이는 자산으로 변합니다.</p>
+            <p className="text-lg text-slate-500 max-w-2xl mx-auto font-medium">단 4단계만으로 당신의 일상이 매일 쌓이는 자산으로 변합니다.</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 md:gap-12 pl-4 md:pl-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-6 lg:gap-8 pl-4 md:pl-0">
             <FeatureCard
               step="1"
               icon={MessageSquare}
               title="60초 짧은 대화"
               description="오늘의 계획, 관심사를 AI에게 편안하게 말해주세요. 자연스러운 대화가 가치 있는 데이터로 구체화됩니다."
             />
-            <div className="hidden md:flex absolute top-1/2 left-[30%] -translate-y-1/2 text-slate-300">
-              <ArrowRight size={32} />
-            </div>
             <FeatureCard
               step="2"
               icon={Lock}
               title="의도를 데이터 자산으로"
               description="완벽히 익명화된 '의도(Intent)'만을 추출하여, 오직 당신만이 소유할 수 있는 안전한 디지털 인덱스 자산으로 변환합니다."
             />
-            <div className="hidden md:flex absolute top-1/2 right-[30%] -translate-y-1/2 text-slate-300">
-              <ArrowRight size={32} />
-            </div>
             <FeatureCard
               step="3"
+              icon={Timer}
+              title="20초 관심사 탐색"
+              description="당신의 의도와 매칭된 정보를 탐색하세요. 관심 있는 페이지에서 20초 이상 체류하면 당신의 의도에 대한 가치가 증명됩니다."
+            />
+            <FeatureCard
+              step="4"
               icon={Coins}
-              title="매일 쌓이는 보상"
-              description="당신의 데이터 인덱스가 실질적으로 활용될 때마다, 그 가치에 부합하는 정당하고 지속적인 수익이 창출됩니다."
+              title="기본소득 지급"
+              description="20초 체류가 완료되는 즉시, 당신이 제공한 데이터의 가치에 부합하는 정당하고 지속적인 기본소득이 지급됩니다."
             />
           </div>
         </div>
@@ -344,7 +345,7 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.2),transparent_50%)]" />
 
             <h2 className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-8 break-keep tracking-tight text-white leading-tight">
-              당신의 "Intent"로 <br />
+              당신의 &quot;Intent&quot;로 <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">데이터 기본소득</span>을 시작하세요.
             </h2>
 

@@ -426,7 +426,7 @@ export function ChatInterface({ userId }: { userId: string }) {
           siteName={timerState.siteName}
           siteUrl={timerState.siteUrl}
           pointValue={timerState.pointValue}
-          // @ts-ignore
+          // @ts-expect-error windowRef.current는 Window | null이나 prop 타입이 Window만 허용
           // eslint-disable-next-line react-hooks/refs
           windowRef={windowRef.current}
           onComplete={handleTimerComplete}

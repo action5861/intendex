@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { EmbeddingService } from "./embedding.service";
 import { invalidateCache, CacheKeys } from "@/lib/cache";
+import pLimit from "p-limit";
 
 // ── 상수 ─────────────────────────────────────────────────────────────
 const VECTOR_TOP_N = 50;          // DB 단 1차 필터링: 코사인 유사도 상위 N개
@@ -47,6 +48,13 @@ interface IntentData {
   confidence: number;
   isCommercial: boolean;
   pointValue: number;
+}
+
+/** $queryRaw로 Intent + 임베딩을 단일 왕복 조회할 때의 행 타입 */
+interface IntentRow extends IntentData {
+  id: string;
+  status: string;
+  embedding: string | null; // embedding::text → "[v1,v2,...]"
 }
 
 interface CampaignData {
@@ -192,11 +200,20 @@ export class MatchingService {
    *  5. Match 레코드 일괄 생성
    */
   static async matchIntentToCampaigns(intentId: string) {
-    const intent = await prisma.intent.findUnique({ where: { id: intentId } });
+    // ── Step 1: Intent + 임베딩 단일 쿼리 (왕복 2→1 절감) ──────────
+    const rows = await prisma.$queryRaw<IntentRow[]>(Prisma.sql`
+      SELECT
+        id, category, subcategory, keyword, description,
+        confidence, "isCommercial", "pointValue", status,
+        embedding::text AS embedding
+      FROM "Intent"
+      WHERE id = ${intentId}
+    `);
+
+    const intent = rows[0];
     if (!intent || intent.status !== "active" || !intent.isCommercial) return [];
 
-    // ── Step 1: Intent 임베딩 확보 ──────────────────────────────────
-    const intentEmbedding = await this.getOrCreateIntentEmbedding(intentId, intent);
+    const intentEmbedding = await this.resolveEmbedding(intentId, intent);
 
     // ── Step 2: DB 단 벡터 유사도 1차 필터링 ──────────────────────
     // pgvector의 <=> 연산자는 코사인 거리(0=동일, 2=반대)를 반환
@@ -217,14 +234,14 @@ export class MatchingService {
             budget,
             spent,
             "costPerMatch",
-            (1 - (embedding <=> ${vectorStr}::vector))::float8 AS vector_similarity
+            (1 - (embedding::halfvec(3072) <=> ${vectorStr}::halfvec(3072)))::float8 AS vector_similarity
           FROM "Campaign"
           WHERE
             status    = 'active'
             AND "endDate" >= NOW()
             AND spent < budget
             AND embedding IS NOT NULL
-          ORDER BY embedding <=> ${vectorStr}::vector
+          ORDER BY embedding::halfvec(3072) <=> ${vectorStr}::halfvec(3072)
           LIMIT ${VECTOR_TOP_N}
         `
       ),
@@ -288,25 +305,19 @@ export class MatchingService {
   }
 
   /**
-   * Intent 임베딩을 DB에서 가져오거나 없으면 생성 후 저장.
-   * DB에 저장된 임베딩을 raw SQL로 읽는다 (Unsupported 타입은 Prisma ORM이 직렬화 불가).
+   * 단일 쿼리로 이미 조회된 IntentRow의 embedding 문자열을 number[]로 변환.
+   * 임베딩이 없으면 생성 후 DB에 비동기 저장 (매칭 블로킹 최소화).
    */
-  private static async getOrCreateIntentEmbedding(
+  private static async resolveEmbedding(
     intentId: string,
-    intent: IntentData & { id: string }
+    intent: IntentRow
   ): Promise<number[]> {
-    // embedding 컬럼은 Unsupported("vector") 타입이므로 ORM 대신 raw로 조회
-    const rows = await prisma.$queryRaw<{ embedding: string | null }[]>(
-      Prisma.sql`SELECT embedding::text FROM "Intent" WHERE id = ${intentId}`
-    );
-
-    const stored = rows[0]?.embedding;
-    if (stored) {
+    if (intent.embedding) {
       // PostgreSQL vector 리터럴 "[0.1,0.2,...]" → number[]
-      return stored.slice(1, -1).split(",").map(Number);
+      return intent.embedding.slice(1, -1).split(",").map(Number);
     }
 
-    // 임베딩 생성 후 비동기 저장 (매칭 블로킹 최소화)
+    // 임베딩 생성 후 비동기 저장
     const text = EmbeddingService.buildIntentText(intent);
     const embedding = await EmbeddingService.embed(text);
     const vectorStr = EmbeddingService.toVectorLiteral(embedding);
@@ -338,20 +349,21 @@ export class MatchingService {
           AND spent < budget
           AND embedding IS NULL
           AND (category = ${category} OR ${keyword} = ANY(keywords) OR ${category} = ANY(keywords))
-        LIMIT 100
+        LIMIT 30
       `
     );
   }
 
-  // ── 사용자 전체 의도 매칭 (병렬 처리) ────────────────────────────
+  // ── 사용자 전체 의도 매칭 (동시성 제한 병렬 처리) ────────────────
   static async runMatchingForUser(userId: string) {
     const activeIntents = await prisma.intent.findMany({
       where: { userId, status: "active", isCommercial: true },
       select: { id: true },
     });
 
+    const limit = pLimit(4); // DB 연결 풀 보호: 최대 4개 동시 실행
     const results = await Promise.allSettled(
-      activeIntents.map((intent) => this.matchIntentToCampaigns(intent.id))
+      activeIntents.map((intent) => limit(() => this.matchIntentToCampaigns(intent.id)))
     );
 
     return results
