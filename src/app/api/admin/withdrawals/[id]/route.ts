@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const updateSchema = z.object({
-  status: z.enum(["completed", "rejected"]),
+  status: z.enum(["completed", "rejected", "unsuspend"]),
 });
 
 export async function PATCH(
@@ -33,11 +33,30 @@ export async function PATCH(
   }
 
   const metadata = transaction.metadata as Record<string, unknown> | null;
+  const newStatus = parsed.data.status;
+
+  // Handle unsuspend action for flagged transactions
+  if (newStatus === "unsuspend") {
+    if (metadata?.status !== "flagged") {
+      return NextResponse.json({ error: "어뷰징 감지 건이 아닙니다" }, { status: 400 });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: transaction.userId },
+        data: { isSuspended: false },
+      });
+      await tx.transaction.update({
+        where: { id },
+        data: { metadata: { ...metadata, status: "reviewed" } },
+      });
+    });
+    return NextResponse.json({ success: true });
+  }
+
+  // flagged and other non-pending statuses block completed/rejected actions
   if (metadata?.status !== "pending") {
     return NextResponse.json({ error: "이미 처리된 출금 건입니다" }, { status: 400 });
   }
-
-  const newStatus = parsed.data.status;
 
   if (newStatus === "rejected") {
     // Refund points + update transaction status + create refund record

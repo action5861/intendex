@@ -62,6 +62,10 @@ model User {
   transactions  Transaction[]
   conversations Conversation[]
   dwellSessions DwellSession[]
+  bankAccountNumber  String?        @unique  // 최초 출금 시 등록, 변경 불가
+  bankAccountHolder  String?
+  bankName           String?
+  isSuspended        Boolean        @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }

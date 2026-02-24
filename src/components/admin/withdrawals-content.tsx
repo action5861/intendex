@@ -7,7 +7,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, CheckCircle, XCircle, Wallet, Clock, ArrowDownRight, ArrowUpRight, Banknote, User as UserIcon } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Wallet, Clock, ArrowDownRight, ArrowUpRight, Banknote, User as UserIcon, AlertTriangle, ShieldOff, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -21,12 +21,15 @@ interface WithdrawalTransaction {
     accountNumber: string;
     holder: string;
     status: string;
+    abuseReason?: string;
+    duplicateUserId?: string;
   };
   createdAt: string;
   user: {
     id: string;
     name: string | null;
     email: string | null;
+    isSuspended: boolean;
   };
 }
 
@@ -51,7 +54,7 @@ export function WithdrawalsContent() {
     fetchData();
   }, [tab, fetchData]);
 
-  const handleAction = async (id: string, status: "completed" | "rejected") => {
+  const handleAction = async (id: string, status: "completed" | "rejected" | "unsuspend") => {
     setProcessingId(id);
     const res = await fetch(`/api/admin/withdrawals/${id}`, {
       method: "PATCH",
@@ -60,7 +63,9 @@ export function WithdrawalsContent() {
     });
 
     if (res.ok) {
-      toast.success(status === "completed" ? "송금이 성공적으로 완료되었습니다." : "출금 요청이 반려되었습니다.");
+      if (status === "completed") toast.success("송금이 성공적으로 완료되었습니다.");
+      else if (status === "rejected") toast.success("출금 요청이 반려되었습니다.");
+      else toast.success("계정이 복구되었습니다.");
       fetchData();
     } else {
       const data = await res.json();
@@ -114,6 +119,11 @@ export function WithdrawalsContent() {
                 <XCircle className="w-4 h-4 text-rose-500" /> 반려됨
               </div>
             </TabsTrigger>
+            <TabsTrigger value="flagged" className="rounded-lg px-6 py-2 transition-all data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm data-[state=active]:text-slate-900 dark:data-[state=active]:text-white font-medium whitespace-nowrap">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500" /> 어뷰징 감지
+              </div>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value={tab} className="mt-2 min-h-[400px]">
@@ -132,7 +142,7 @@ export function WithdrawalsContent() {
                   <Banknote className="h-10 w-10 text-slate-300 dark:text-slate-500" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
-                  {tab === "pending" ? "대기중인 출금 요청이 없습니다" : tab === "completed" ? "송금 완료된 내역이 없습니다" : "반려된 내역이 없습니다"}
+                  {tab === "pending" ? "대기중인 출금 요청이 없습니다" : tab === "completed" ? "송금 완료된 내역이 없습니다" : tab === "flagged" ? "감지된 어뷰징이 없습니다" : "반려된 내역이 없습니다"}
                 </h3>
                 <p className="text-[15px] text-slate-500 dark:text-slate-400 font-medium">새로운 내역이 발생하면 이곳에 표시됩니다.</p>
               </motion.div>
@@ -146,20 +156,30 @@ export function WithdrawalsContent() {
                 <AnimatePresence>
                   {transactions.map((tx) => (
                     <motion.div variants={itemVariants} key={tx.id} layoutId={tx.id}>
-                      <Card className={`overflow-hidden border-0 shadow-sm ring-1 ring-slate-200/60 dark:ring-slate-800/80 transition-all duration-300 hover:shadow-md ${tab === 'completed' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : tab === 'rejected' ? 'bg-rose-50/30 dark:bg-rose-900/5' : 'bg-white dark:bg-slate-900/50 hover:bg-slate-50/80 dark:hover:bg-slate-800/80'}`}>
+                      <Card className={`overflow-hidden border-0 shadow-sm ring-1 ring-slate-200/60 dark:ring-slate-800/80 transition-all duration-300 hover:shadow-md ${tab === 'completed' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : tab === 'rejected' ? 'bg-rose-50/30 dark:bg-rose-900/5' : tab === 'flagged' ? 'bg-red-50/40 dark:bg-red-900/10 ring-red-200/60 dark:ring-red-900/40' : 'bg-white dark:bg-slate-900/50 hover:bg-slate-50/80 dark:hover:bg-slate-800/80'}`}>
                         <CardContent className="p-0">
                           <div className="flex flex-col md:flex-row md:items-center">
                             {/* User & Amount Section */}
                             <div className="flex-1 p-5 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-4">
                               <div className="flex items-center gap-4 min-w-0">
-                                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl shrink-0 shadow-inner ${tab === 'completed' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : tab === 'rejected' ? 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'}`}>
-                                  {tab === "completed" ? <ArrowUpRight className="h-6 w-6" /> : tab === "rejected" ? <XCircle className="h-6 w-6" /> : <ArrowDownRight className="h-6 w-6" />}
+                                <div className={`flex h-12 w-12 items-center justify-center rounded-2xl shrink-0 shadow-inner ${tab === 'completed' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' : tab === 'rejected' ? 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400' : tab === 'flagged' ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'}`}>
+                                  {tab === "completed" ? <ArrowUpRight className="h-6 w-6" /> : tab === "rejected" ? <XCircle className="h-6 w-6" /> : tab === "flagged" ? <AlertTriangle className="h-6 w-6" /> : <ArrowDownRight className="h-6 w-6" />}
                                 </div>
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2 mb-0.5">
                                     <h3 className="font-bold text-slate-900 dark:text-white text-[15px] truncate">
                                       {tx.user.name ?? "이름 미설정"}
                                     </h3>
+                                    {tab === "flagged" && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 shrink-0">
+                                        <AlertTriangle className="w-2.5 h-2.5" /> 어뷰징 감지
+                                      </span>
+                                    )}
+                                    {tx.user.isSuspended && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 shrink-0">
+                                        <ShieldOff className="w-2.5 h-2.5" /> 계정 정지됨
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400 font-medium truncate">
                                     <UserIcon className="w-3.5 h-3.5" />
@@ -216,6 +236,18 @@ export function WithdrawalsContent() {
                                   >
                                     {processingId === tx.id ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <XCircle className="h-4 w-4 mr-1.5" />}
                                     반려
+                                  </Button>
+                                </div>
+                              ) : tab === "flagged" ? (
+                                <div className="flex gap-2 shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleAction(tx.id, "unsuspend")}
+                                    disabled={processingId === tx.id}
+                                    className="flex-1 sm:flex-none h-9 bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-sm shadow-blue-500/20"
+                                  >
+                                    {processingId === tx.id ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <ShieldCheck className="h-4 w-4 mr-1.5" />}
+                                    계정 복구
                                   </Button>
                                 </div>
                               ) : (

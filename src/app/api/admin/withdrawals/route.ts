@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         user: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true, isSuspended: true },
         },
       },
       orderBy: { createdAt: "desc" },

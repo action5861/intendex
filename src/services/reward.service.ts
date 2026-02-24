@@ -120,40 +120,127 @@ export class RewardService {
     amount: number,
     accountInfo: { bank: string; accountNumber: string; holder: string }
   ) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { points: true },
-    });
-
-    if (!user || user.points < amount) {
-      throw new Error("잔액이 부족합니다");
-    }
-
     if (amount < 10000) {
       throw new Error("최소 출금 금액은 10,000P입니다");
     }
 
-    // Deduct points
-    const updated = await prisma.user.update({
+    // 1. Fetch user with all required fields
+    const user = await prisma.user.findUnique({
       where: { id: userId },
-      data: { points: { decrement: amount } },
+      select: {
+        points: true,
+        name: true,
+        isSuspended: true,
+        bankAccountNumber: true,
+      },
     });
 
-    // Create transaction record
-    await prisma.transaction.create({
-      data: {
-        userId,
-        type: "withdraw",
-        amount,
-        balance: updated.points,
-        source: "withdraw",
-        metadata: {
-          bank: accountInfo.bank,
-          accountNumber: accountInfo.accountNumber,
-          holder: accountInfo.holder,
-          status: "pending", // Manual processing
+    if (!user) {
+      throw new Error("사용자를 찾을 수 없습니다");
+    }
+
+    // 2. Suspended account check
+    if (user.isSuspended) {
+      throw new Error("정지된 계정입니다. 출금이 불가합니다.");
+    }
+
+    if (user.points < amount) {
+      throw new Error("잔액이 부족합니다");
+    }
+
+    // 3. Real-name verification
+    const normalize = (s: string) => s.replace(/\s/g, "");
+    const userName = user.name ?? "";
+    if (normalize(userName) !== normalize(accountInfo.holder)) {
+      throw new Error("예금주명이 가입자명과 일치하지 않습니다.");
+    }
+
+    // 4. Bank account duplicate / consistency check
+    if (user.bankAccountNumber !== null) {
+      // User already has a registered account
+      if (user.bankAccountNumber !== accountInfo.accountNumber) {
+        throw new Error("기존 등록 계좌로만 출금이 가능합니다.");
+      }
+    } else {
+      // First-time withdrawal: check if another user already owns this account number
+      const existingOwner = await prisma.user.findUnique({
+        where: { bankAccountNumber: accountInfo.accountNumber },
+        select: { id: true },
+      });
+
+      if (existingOwner && existingOwner.id !== userId) {
+        // Abuse detected: suspend both accounts and create flagged transaction
+        await prisma.$transaction(async (tx) => {
+          // Suspend requester and existing owner
+          await tx.user.updateMany({
+            where: { id: { in: [userId, existingOwner.id] } },
+            data: { isSuspended: true },
+          });
+
+          // Create flagged transaction (no point deduction)
+          await tx.transaction.create({
+            data: {
+              userId,
+              type: "withdraw",
+              amount,
+              balance: user.points,
+              source: "withdraw",
+              metadata: {
+                bank: accountInfo.bank,
+                accountNumber: accountInfo.accountNumber,
+                holder: accountInfo.holder,
+                status: "flagged",
+                abuseReason: "duplicate_bank_account",
+                duplicateUserId: existingOwner.id,
+              },
+            },
+          });
+        });
+
+        throw new Error(
+          "해당 계좌번호는 이미 다른 계정에 등록되어 있습니다. 어뷰징이 감지되어 계정이 정지됩니다."
+        );
+      }
+    }
+
+    // 5 & 6. First-time account registration + point deduction + pending transaction
+    const updated = await prisma.$transaction(async (tx) => {
+      // Register bank account on first withdrawal
+      if (user.bankAccountNumber === null) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            bankAccountNumber: accountInfo.accountNumber,
+            bankName: accountInfo.bank,
+            bankAccountHolder: accountInfo.holder,
+          },
+        });
+      }
+
+      // Deduct points
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { points: { decrement: amount } },
+      });
+
+      // Create pending transaction
+      await tx.transaction.create({
+        data: {
+          userId,
+          type: "withdraw",
+          amount,
+          balance: updatedUser.points,
+          source: "withdraw",
+          metadata: {
+            bank: accountInfo.bank,
+            accountNumber: accountInfo.accountNumber,
+            holder: accountInfo.holder,
+            status: "pending",
+          },
         },
-      },
+      });
+
+      return updatedUser;
     });
 
     await invalidateCache(CacheKeys.balance(userId));
