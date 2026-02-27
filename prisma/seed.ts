@@ -2079,6 +2079,18 @@ async function main() {
   }
   console.log(`  ✓ Seeded ${campaigns.length} campaigns`);
 
+  // ── 4. 초기 추천 안내문 ──
+  console.log("Seeding suggestions...");
+  await prisma.suggestion.deleteMany();
+  await prisma.suggestion.createMany({
+    data: [
+      { text: "✈️ 요즘 일본 여행 가고 싶은데 일주일 예산 얼마나 들까?", category: "여행", keyword: "일본 여행", pointValue: 700, siteUrl: "https://www.hanatour.com", siteName: "하나투어", order: 0 },
+      { text: "💪🏻 바쁜 직장인을 위한 하루 10분 건강 관리템 추천해줘", category: "건강", keyword: "건강 관리", pointValue: 400, siteUrl: "https://www.oliveyoung.co.kr", siteName: "올리브영", order: 1 },
+      { text: "💻 100만원대 가성비 영상편집용 노트북 찾아줘", category: "테크", keyword: "노트북", pointValue: 700, siteUrl: "https://www.danawa.com", siteName: "다나와", order: 2 },
+    ],
+  });
+  console.log("  ✓ Seeded 3 suggestions");
+
   console.log("\n🎉 Seed completed successfully!");
 }
 

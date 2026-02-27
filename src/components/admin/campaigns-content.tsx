@@ -28,10 +28,10 @@ import {
   Sparkles,
   Megaphone,
   Link as LinkIcon,
-  Search,
   CheckCircle2,
   Clock,
-  XCircle
+  AlertTriangle,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { INTENT_CATEGORIES } from "@/types";
@@ -91,6 +91,11 @@ export function CampaignsContent() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CampaignForm>(emptyForm);
   const [analyzing, setAnalyzing] = useState(false);
+
+  // 예산 충전
+  const [rechargeId, setRechargeId] = useState<string | null>(null);
+  const [rechargeAmount, setRechargeAmount] = useState("");
+  const [recharging, setRecharging] = useState(false);
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
@@ -239,6 +244,43 @@ export function CampaignsContent() {
       toast.error(data.error || "삭제를 진행할 수 없습니다.");
     }
   };
+
+  const handleRecharge = async (id: string) => {
+    const amount = Number(rechargeAmount);
+    if (!amount || amount <= 0) {
+      toast.error("올바른 충전 금액을 입력해주세요.");
+      return;
+    }
+    setRecharging(true);
+    const res = await fetch(`/api/admin/campaigns/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addBudget: amount }),
+    });
+    if (res.ok) {
+      toast.success(`${amount.toLocaleString()}P 충전 완료. 소진된 캠페인은 자동 재활성화됩니다.`);
+      setRechargeId(null);
+      setRechargeAmount("");
+      fetchCampaigns();
+    } else {
+      const data = await res.json();
+      toast.error(data.error || "충전 중 오류가 발생했습니다.");
+    }
+    setRecharging(false);
+  };
+
+  function calcDday(campaign: CampaignItem): string | null {
+    if (campaign.spent === 0) return null;
+    const start = new Date(campaign.startDate);
+    const now = new Date();
+    const daysElapsed = Math.max(1, Math.ceil((now.getTime() - start.getTime()) / 86400000));
+    const avgDaily = campaign.spent / daysElapsed;
+    if (avgDaily <= 0) return null;
+    const remaining = campaign.budget - campaign.spent;
+    const daysLeft = Math.ceil(remaining / avgDaily);
+    if (daysLeft <= 0) return "오늘 소진 예상";
+    return `약 ${daysLeft}일 후 소진 예상`;
+  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -415,12 +457,26 @@ export function CampaignsContent() {
 
                               <div className="space-y-2">
                                 <div className="flex justify-between items-end">
-                                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">예산 소진율</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">예산 소진율</p>
+                                    {progressRate >= 80 && progressRate < 100 && (
+                                      <span className="flex items-center gap-0.5 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded-full">
+                                        <AlertTriangle className="h-2.5 w-2.5" />
+                                        {progressRate >= 90 ? "위험" : "경보"}
+                                      </span>
+                                    )}
+                                    {progressRate >= 100 && (
+                                      <span className="flex items-center gap-0.5 text-[10px] font-black text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/40 px-1.5 py-0.5 rounded-full">
+                                        <AlertTriangle className="h-2.5 w-2.5" />
+                                        소진 완료
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-sm font-black text-slate-800 dark:text-slate-200">{Math.min(progressRate, 100).toFixed(1)}%</p>
                                 </div>
                                 <div className="w-full h-2.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                   <div
-                                    className={`h-full rounded-full transition-all duration-1000 ${progressRate >= 90 ? 'bg-rose-500' : progressRate >= 75 ? 'bg-amber-500' : 'bg-fuchsia-500'}`}
+                                    className={`h-full rounded-full transition-all duration-1000 ${progressRate >= 90 ? 'bg-rose-500' : progressRate >= 80 ? 'bg-amber-500' : 'bg-fuchsia-500'}`}
                                     style={{ width: `${Math.min(progressRate, 100)}%` }}
                                   />
                                 </div>
@@ -428,7 +484,57 @@ export function CampaignsContent() {
                                   <span>{campaign.spent.toLocaleString()} P 사용</span>
                                   <span>총 {campaign.budget.toLocaleString()} P</span>
                                 </div>
+                                {campaign.status === "active" && (() => { const dday = calcDday(campaign); return dday ? (
+                                  <p className={`text-[11px] font-semibold text-right ${progressRate >= 80 ? 'text-amber-500' : 'text-slate-400'}`}>
+                                    📅 {dday}
+                                  </p>
+                                ) : null; })()}
                               </div>
+
+                              {/* 예산 충전 인라인 UI */}
+                              {rechargeId === campaign.id ? (
+                                <div className="mt-3 flex gap-2">
+                                  <div className="relative flex-1">
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={rechargeAmount}
+                                      onChange={(e) => setRechargeAmount(e.target.value)}
+                                      placeholder="충전액 입력"
+                                      className="w-full h-9 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-800 px-3 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      onKeyDown={(e) => e.key === "Enter" && handleRecharge(campaign.id)}
+                                      autoFocus
+                                    />
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">P</span>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleRecharge(campaign.id)}
+                                    disabled={recharging}
+                                    className="h-9 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold"
+                                  >
+                                    {recharging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "충전"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => { setRechargeId(null); setRechargeAmount(""); }}
+                                    className="h-9 px-2 text-slate-400 hover:text-slate-600 rounded-lg"
+                                  >
+                                    취소
+                                  </Button>
+                                </div>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => { e.stopPropagation(); setRechargeId(campaign.id); setRechargeAmount(""); }}
+                                  className="mt-3 w-full h-8 rounded-lg border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-xs font-bold gap-1.5"
+                                >
+                                  <Zap className="h-3.5 w-3.5" />
+                                  예산 충전
+                                </Button>
+                              )}
 
                               <div className="mt-4 flex items-center justify-between text-xs font-medium text-slate-400 dark:text-slate-500 pt-3 border-t border-slate-200 dark:border-slate-700/50">
                                 <span>시작: {new Date(campaign.startDate).toLocaleDateString("ko-KR", { year: '2-digit', month: '2-digit', day: '2-digit' })}</span>

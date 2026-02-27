@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Users,
   Megaphone,
+  MessageSquarePlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -90,6 +91,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               { href: "/admin/users", label: "사용자 관리", icon: Users, color: "text-purple-400", bg: "bg-purple-500/10" },
               { href: "/admin/campaigns", label: "광고주 관리", icon: Megaphone, color: "text-pink-400", bg: "bg-pink-500/10" },
               { href: "/admin/withdrawals", label: "출금 관리", icon: ShieldCheck, color: "text-rose-400", bg: "bg-rose-500/10" },
+              { href: "/admin/suggestions", label: "안내문 관리", icon: MessageSquarePlus, color: "text-cyan-400", bg: "bg-cyan-500/10" },
             ].map((item) => {
               const isActive = pathname.startsWith(item.href);
               return (

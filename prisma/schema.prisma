@@ -66,6 +66,9 @@ model User {
   bankAccountHolder  String?
   bankName           String?
   isSuspended        Boolean        @default(false)
+  verifiedPhone      String?        @unique  // 인증된 휴대폰 번호 (1폰=1계정 보장)
+  verifiedName       String?                 // 통신사 인증 이름 (예금주 비교 기준)
+  isPhoneVerified    Boolean        @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -221,4 +224,20 @@ model Site {
   updatedAt  DateTime @updatedAt
 
   @@index([categoryId])
+}
+
+model Suggestion {
+  id         String   @id @default(cuid())
+  text       String
+  category   String
+  keyword    String
+  pointValue Int      @default(500)
+  siteUrl    String?  // 안내문에 연결된 광고주 사이트 URL
+  siteName   String?  // 광고주 사이트 표시명
+  isActive   Boolean  @default(true)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isActive, order])
 }

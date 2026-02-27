@@ -83,12 +83,18 @@ export class SemanticScorer {
   static score(intent: IntentData, campaign: CampaignData): number {
     const W1 = 0.25, W2 = 0.25, W3 = 0.20, W4 = 0.30;
 
+    const categoryScore = this.scoreCategoryValue(intent, campaign);
+    const kwScore = this.scoreKeywordRelevance(intent, campaign);
+
+    // 카테고리도 키워드도 겹치지 않으면 관련 없는 캠페인 → 매칭 제외
+    if (categoryScore === 0 && kwScore === 0) return 0;
+
     return Math.min(
       1,
-      W1 * this.scoreCategoryValue(intent, campaign) +
+      W1 * categoryScore +
       W2 * this.scoreSearchIntensity(intent) +
       W3 * this.scoreSiteReliability(campaign) +
-      W4 * this.scoreKeywordRelevance(intent, campaign)
+      W4 * kwScore
     );
   }
 
@@ -382,10 +388,29 @@ export class MatchingService {
     if (match.status !== "pending") throw new Error("Match already processed");
 
     await prisma.$transaction(async (tx) => {
+      // 트랜잭션 내 최신 예산 상태 재조회 (동시 수락 경쟁 조건 방지)
+      const freshCampaign = await tx.campaign.findUnique({
+        where: { id: match.campaignId },
+        select: { spent: true, budget: true, status: true },
+      });
+
+      if (!freshCampaign || freshCampaign.status === "completed") {
+        throw new Error("campaign_completed");
+      }
+      if (freshCampaign.spent + match.reward > freshCampaign.budget) {
+        throw new Error("budget_exceeded");
+      }
+
+      const newSpent = freshCampaign.spent + match.reward;
+      const shouldComplete = newSpent >= freshCampaign.budget;
+
       await tx.match.update({ where: { id: matchId }, data: { status: "accepted" } });
       await tx.campaign.update({
         where: { id: match.campaignId },
-        data: { spent: { increment: match.reward } },
+        data: {
+          spent: { increment: match.reward },
+          ...(shouldComplete ? { status: "completed" } : {}),
+        },
       });
       const user = await tx.user.update({
         where: { id: userId },

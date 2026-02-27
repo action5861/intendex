@@ -21,6 +21,23 @@ export async function PATCH(
     return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
   }
 
+  // 예산 충전 전용 액션 (addBudget)
+  if (typeof body.addBudget === "number") {
+    const amount = Math.floor(body.addBudget);
+    if (amount <= 0) {
+      return NextResponse.json({ error: "충전액은 1 이상이어야 합니다" }, { status: 400 });
+    }
+    const recharged = await prisma.campaign.update({
+      where: { id },
+      data: {
+        budget: { increment: amount },
+        // 예산 소진으로 completed 된 캠페인은 active로 복구
+        ...(campaign.status === "completed" ? { status: "active" } : {}),
+      },
+    });
+    return NextResponse.json(recharged);
+  }
+
   const updateData: Record<string, unknown> = {};
 
   if (body.title) updateData.title = body.title;

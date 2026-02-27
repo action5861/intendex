@@ -3,6 +3,22 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { useEffect, useRef, useState, useCallback } from "react";
+
+interface SuggestionItem {
+  id: string;
+  text: string;
+  category: string;
+  keyword: string;
+  pointValue: number;
+  siteUrl?: string | null;
+  siteName?: string | null;
+}
+
+const FALLBACK_SUGGESTIONS: SuggestionItem[] = [
+  { id: "f1", text: "✈️ 요즘 일본 여행 가고 싶은데 일주일 예산 얼마나 들까?", category: "여행", keyword: "일본 여행", pointValue: 700, siteUrl: "https://www.hanatour.com", siteName: "하나투어" },
+  { id: "f2", text: "💪🏻 바쁜 직장인을 위한 하루 10분 건강 관리템 추천해줘", category: "건강", keyword: "건강 관리", pointValue: 400, siteUrl: "https://www.oliveyoung.co.kr", siteName: "올리브영" },
+  { id: "f3", text: "💻 100만원대 가성비 영상편집용 노트북 찾아줘", category: "테크", keyword: "노트북", pointValue: 700, siteUrl: "https://www.danawa.com", siteName: "다나와" },
+];
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -74,6 +90,8 @@ interface TimerState {
 export function ChatInterface({ userId }: { userId: string }) {
   const [input, setInput] = useState("");
   const [composing, setComposing] = useState(false);
+  const [directMatchLoading, setDirectMatchLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>(FALLBACK_SUGGESTIONS);
   const scrollRef = useRef<HTMLDivElement>(null);
   const windowRef = useRef<Window | null>(null);
   const [visitedSites, setVisitedSites] = useState<Set<string>>(new Set());
@@ -119,6 +137,17 @@ export function ChatInterface({ userId }: { userId: string }) {
   }, [fetchDailyStatus]);
 
   useEffect(() => {
+    fetch("/api/suggestions")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.suggestions?.length > 0) {
+          setSuggestions(data.suggestions);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (status === "ready" && messages.length > 1) {
       fetchDailyStatus();
     }
@@ -129,6 +158,20 @@ export function ChatInterface({ userId }: { userId: string }) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // 컴포넌트 언마운트 시 미완료 세션 닫기 (페이지 이탈로 생기는 zombie session 방지)
+  useEffect(() => {
+    return () => {
+      const { dwellToken } = timerStateRef.current;
+      if (dwellToken) {
+        fetch("/api/rewards/dwell/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: dwellToken, elapsedSeconds: 0 }),
+        }).catch(() => {});
+      }
+    };
+  }, []);
 
   const handleVisitSite = useCallback(async (site: RecommendedSite, pointValue: number) => {
     if (timerState.active) {
@@ -197,8 +240,17 @@ export function ChatInterface({ userId }: { userId: string }) {
   }, [fetchDailyStatus]);
 
   const handleTimerCancel = useCallback(() => {
+    const { dwellToken } = timerStateRef.current;
     setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0, dwellToken: "" });
     windowRef.current = null;
+    // 서버 세션을 닫아 zombie session 방지 (elapsedSeconds=0 → 포인트 미지급 + completedAt 기록)
+    if (dwellToken) {
+      fetch("/api/rewards/dwell/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: dwellToken, elapsedSeconds: 0 }),
+      }).catch(() => {});
+    }
     toast.info("사이트 체류가 취소되었습니다.");
   }, []);
 
@@ -208,6 +260,63 @@ export function ChatInterface({ userId }: { userId: string }) {
     setTimerState({ active: false, siteName: "", siteUrl: "", pointValue: 0, dwellToken: "" });
     windowRef.current = null;
   }, [setMessages]);
+
+  const handleDirectMatch = useCallback(
+    async (suggestion: SuggestionItem) => {
+      if (isLoading || directMatchLoading) return;
+
+      const userMsg: UIMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        parts: [{ type: "text", text: suggestion.text }],
+      };
+
+      setMessages((prev) => [...prev, userMsg]);
+      setDirectMatchLoading(true);
+
+      try {
+        const res = await fetch("/api/chat/direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: suggestion.text,
+            category: suggestion.category,
+            keyword: suggestion.keyword,
+            pointValue: suggestion.pointValue,
+            siteUrl: suggestion.siteUrl ?? null,
+            siteName: suggestion.siteName ?? null,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          if (data.error === "rate_limit_exceeded") {
+            toast.error("잠시 후 다시 시도해 주세요. (분당 10회 제한)");
+          } else if (data.error === "daily_cap_reached") {
+            toast.error("오늘 기본소득 한도를 모두 사용하셨습니다.");
+          } else {
+            toast.error("오류가 발생했습니다. 다시 시도해 주세요.");
+          }
+          return;
+        }
+
+        const assistantMsg: UIMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          parts: [{ type: "text", text: data.assistantText }],
+        };
+
+        setMessages((prev) => [...prev, assistantMsg]);
+        fetchDailyStatus();
+      } catch {
+        toast.error("네트워크 오류가 발생했습니다.");
+      } finally {
+        setDirectMatchLoading(false);
+      }
+    },
+    [isLoading, directMatchLoading, setMessages, fetchDailyStatus]
+  );
 
   const handleSend = () => {
     if (!input.trim() || isLoading) return;
@@ -332,21 +441,15 @@ export function ChatInterface({ userId }: { userId: string }) {
                       transition={{ delay: 0.6 }}
                       className="mt-8 flex flex-wrap gap-2.5 justify-center max-w-xl mx-auto"
                     >
-                      {[
-                        "✈️ 요즘 일본 여행 가고 싶은데 일주일 예산 얼마나 들까?",
-                        "💪🏻 바쁜 직장인을 위한 하루 10분 건강 관리템 추천해줘",
-                        "💻 100만원대 가성비 영상편집용 노트북 찾아줘",
-                      ].map((suggestion) => (
+                      {suggestions.map((suggestion) => (
                         <Button
-                          key={suggestion}
+                          key={suggestion.id}
                           variant="outline"
-                          onClick={() => {
-                            setInput("");
-                            sendMessage({ text: suggestion });
-                          }}
+                          onClick={() => handleDirectMatch(suggestion)}
+                          disabled={isLoading || directMatchLoading}
                           className="rounded-full bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 hover:text-blue-600 dark:hover:text-blue-400 transition-all font-medium py-5 px-5 h-auto whitespace-normal text-left"
                         >
-                          {suggestion}
+                          {suggestion.text}
                         </Button>
                       ))}
                     </motion.div>
@@ -355,7 +458,7 @@ export function ChatInterface({ userId }: { userId: string }) {
               );
             })}
 
-            {isLoading && messages[messages.length - 1]?.role === "user" && (
+            {(isLoading || directMatchLoading) && messages[messages.length - 1]?.role === "user" && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -368,7 +471,9 @@ export function ChatInterface({ userId }: { userId: string }) {
                 </Avatar>
                 <div className="rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 px-5 py-4 shadow-sm flex items-center gap-2 text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                  <span className="text-sm font-medium">의도를 분석하고 답변을 작성 중입니다...</span>
+                  <span className="text-sm font-medium">
+                    {directMatchLoading ? "맞춤 광고주를 즉시 매칭 중입니다..." : "의도를 분석하고 답변을 작성 중입니다..."}
+                  </span>
                 </div>
               </motion.div>
             )}
