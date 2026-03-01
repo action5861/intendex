@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, ShieldCheck, User as UserIcon, MoreHorizontal, Database, ArrowUpDown, CreditCard, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Loader2, Search, ShieldCheck, User as UserIcon, MoreHorizontal, Database, CreditCard, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -35,8 +35,12 @@ interface UserDetail extends UserItem {
     id: string;
     category: string;
     keyword: string;
+    confidence: number;
+    pointValue: number;
+    isCommercial: boolean;
     status: string;
     createdAt: string;
+    _count: { matches: number };
   }[];
   transactions: {
     id: string;
@@ -361,6 +365,79 @@ export function UsersContent() {
                   </div>
                 </div>
 
+                {/* Intent Search History — full width */}
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm mb-3 flex items-center gap-2">
+                    <Hash className="w-4 h-4 text-violet-500" />
+                    검색 의도 전체 이력
+                    <span className="ml-1 text-[11px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                      {selectedUser.intents.length}건
+                    </span>
+                  </h3>
+                  {selectedUser.intents.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-slate-500 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                      수집된 의도가 없습니다.
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700/50 overflow-hidden shadow-sm">
+                      <div className="grid grid-cols-[1fr_auto_auto_auto_auto] bg-slate-50 dark:bg-slate-800/80 px-3 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700/50 gap-2">
+                        <span>검색어 / 카테고리</span>
+                        <span className="text-center">신뢰도</span>
+                        <span className="text-center">포인트</span>
+                        <span className="text-center">매칭</span>
+                        <span className="text-right">날짜</span>
+                      </div>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto custom-scrollbar">
+                        {selectedUser.intents.map((intent) => {
+                          const matched = intent._count.matches > 0;
+                          return (
+                            <div
+                              key={intent.id}
+                              className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center px-3 py-2.5 gap-2 text-[13px] hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors"
+                            >
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                  {intent.keyword}
+                                </p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                  {intent.category}
+                                  {!intent.isCommercial && (
+                                    <span className="ml-1 text-slate-400">(비상업)</span>
+                                  )}
+                                </p>
+                              </div>
+                              <span className="text-[12px] font-bold text-slate-600 dark:text-slate-300 tabular-nums w-10 text-center">
+                                {Math.round(intent.confidence * 100)}%
+                              </span>
+                              <span className="text-[12px] font-bold text-amber-600 dark:text-amber-400 tabular-nums w-14 text-center">
+                                {intent.pointValue > 0 ? `${intent.pointValue}P` : "—"}
+                              </span>
+                              <span className="w-16 flex justify-center">
+                                {matched ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    성공
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 px-2 py-0.5 rounded-full">
+                                    <XCircle className="w-3 h-3" />
+                                    미매칭
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums text-right whitespace-nowrap">
+                                {new Date(intent.createdAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" })}
+                                {" "}
+                                {new Date(intent.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Action Blocks */}
                   <div className="space-y-6">
@@ -477,6 +554,7 @@ export function UsersContent() {
               </div>
             )}
           </div>
+
 
           <div className="p-4 bg-slate-50 dark:bg-[#0f172a] border-t border-slate-200 dark:border-slate-800 text-right">
             <Button variant="outline" onClick={() => setDetailOpen(false)} className="rounded-xl font-bold px-6 border-slate-300 dark:border-slate-700 shadow-sm hover:bg-slate-100 dark:hover:bg-slate-800">

@@ -28,11 +28,14 @@ export async function GET(
           id: true,
           category: true,
           keyword: true,
+          confidence: true,
+          pointValue: true,
+          isCommercial: true,
           status: true,
           createdAt: true,
+          _count: { select: { matches: true } },
         },
         orderBy: { createdAt: "desc" },
-        take: 10,
       },
       transactions: {
         select: {
