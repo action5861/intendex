@@ -137,6 +137,7 @@ model Campaign {
   status       String   @default("active") // active | paused | completed
   embedding    Unsupported("vector(3072)")?  // gemini-embedding-001 (3072차원); HNSW 인덱스는 마이그레이션 SQL 참조
   matches      Match[]
+  dwellSessions DwellSession[]
   startDate    DateTime
   endDate      DateTime
   createdAt    DateTime @default(now())
@@ -199,6 +200,8 @@ model DwellSession {
   token       String    @unique
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaignId  String?   // URL이 활성 캠페인과 매칭된 경우 연결 (null = 일반 추천 사이트)
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   url         String
   siteName    String
   maxPoints   Int       // 서버에서 결정 — 클라이언트 변조 불가

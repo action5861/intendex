@@ -38,22 +38,30 @@ export async function POST(req: Request) {
     );
   }
 
-  // 이미 진행 중인 세션 확인 (TTL 내)
+  // 미완료 zombie session 자동 정리 (취소/페이지이탈로 completedAt 없이 남은 세션)
   const ttlCutoff = new Date(Date.now() - TOKEN_TTL_MINUTES * 60 * 1000);
-  const activeSession = await prisma.dwellSession.findFirst({
+  await prisma.dwellSession.updateMany({
     where: {
       userId,
       completedAt: null,
       issuedAt: { gte: ttlCutoff },
     },
+    data: { completedAt: new Date(), awarded: 0 },
   });
 
-  if (activeSession) {
-    return NextResponse.json(
-      { error: "이미 진행 중인 체류 세션이 있습니다." },
-      { status: 409 }
-    );
-  }
+  // 제공된 URL이 활성 캠페인의 URL과 일치하는지 조회 (예산 미소진 캠페인만)
+  const matchedCampaign = await prisma.campaign.findFirst({
+    where: {
+      url,
+      status: "active",
+      endDate: { gte: new Date() },
+    },
+    select: { id: true, spent: true, budget: true },
+  });
+  const campaignId =
+    matchedCampaign && matchedCampaign.spent < matchedCampaign.budget
+      ? matchedCampaign.id
+      : null;
 
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
@@ -66,6 +74,7 @@ export async function POST(req: Request) {
       siteName,
       maxPoints: serverMaxPoints,
       expiresAt,
+      campaignId,
     },
   });
 

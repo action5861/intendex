@@ -33,9 +33,20 @@ export async function POST(req: Request) {
     );
   }
 
-  // 토큰으로 세션 조회
+  // 토큰으로 세션 조회 (campaignId 포함)
   const dwellSession = await prisma.dwellSession.findUnique({
     where: { token },
+    select: {
+      id: true,
+      userId: true,
+      url: true,
+      siteName: true,
+      maxPoints: true,
+      issuedAt: true,
+      expiresAt: true,
+      completedAt: true,
+      campaignId: true,
+    },
   });
 
   if (!dwellSession) {
@@ -50,7 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
 
-  // 이미 완료된 세션(토큰 재사용 방지)
+  // 이미 완료된 세션(토큰 재사용 방지) — 빠른 실패용 사전 체크 (트랜잭션 내에서도 재검증)
   if (dwellSession.completedAt !== null) {
     return NextResponse.json(
       { error: "이미 완료된 세션입니다." },
@@ -67,7 +78,6 @@ export async function POST(req: Request) {
   }
 
   // 타이밍 검증: 클라이언트 주장 경과시간 <= 서버 벽시계 + 버퍼
-  // → /start 직후 곧바로 /complete를 호출해도 elapsedSeconds=60 조작 불가
   const wallClockSeconds =
     (Date.now() - dwellSession.issuedAt.getTime()) / 1000;
   const clampedElapsed = Math.min(
@@ -82,7 +92,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 최소 체류 시간 미달 → 세션만 소모하고 포인트 미지급
+  // 최소 체류 시간 미달 → 세션만 소모하고 포인트 미지급 (포인트 없으므로 레이스 위험 없음)
   if (clampedElapsed < PARTIAL_DWELL_MIN) {
     await prisma.dwellSession.update({
       where: { token },
@@ -103,91 +113,152 @@ export async function POST(req: Request) {
   const windowStart = new Date(
     now.getTime() - DUPLICATE_WINDOW_HOURS * 60 * 60 * 1000
   );
-
-  // 24시간 내 중복 URL 방문 확인
-  const recentTxns = await prisma.transaction.findMany({
-    where: {
-      userId,
-      type: "earn",
-      createdAt: { gte: windowStart },
-      source: { in: ["intent_reward", "dwell"] },
-    },
-    select: { metadata: true },
-  });
-
-  const alreadyVisited = recentTxns.some((txn) => {
-    const meta = txn.metadata as { url?: string } | null;
-    return meta?.url === dwellSession.url;
-  });
-
-  if (alreadyVisited) {
-    return NextResponse.json(
-      { error: "이미 24시간 내에 방문한 사이트입니다." },
-      { status: 409 }
-    );
-  }
-
-  // 일일 체류 포인트 한도 확인
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
 
-  const todayTxns = await prisma.transaction.aggregate({
-    where: {
-      userId,
-      type: "earn",
-      source: "dwell",
-      createdAt: { gte: todayStart },
-    },
-    _sum: { amount: true },
-  });
-
-  const todayPoints = todayTxns._sum.amount ?? 0;
-  if (todayPoints >= DAILY_MAX_POINTS) {
-    return NextResponse.json(
-      { error: "일일 체류 포인트 한도(1,000P)에 도달했습니다." },
-      { status: 429 }
-    );
-  }
-
   // 포인트 지급 + 세션 완료 처리 (원자적 트랜잭션)
-  const [user, transaction] = await prisma.$transaction(async (tx) => {
-    const updatedUser = await tx.user.update({
-      where: { id: userId },
-      data: { points: { increment: awardPoints } },
-    });
+  // URL 중복 체크와 일일 한도 체크를 트랜잭션 안에서 수행하여
+  // 동시 요청(레이스 컨디션)으로 인한 한도 우회를 방지한다.
+  // User 행에 FOR UPDATE 락을 걸어 같은 사용자의 동시 체류 완료 요청을 직렬화한다.
+  let txResult: { points: number; totalPoints: number; transactionId: string };
+  try {
+    txResult = await prisma.$transaction(async (tx) => {
+      // User 행 락 — 같은 userId의 동시 트랜잭션을 직렬화
+      await tx.$queryRaw`SELECT 1 FROM "User" WHERE id = ${userId} FOR UPDATE`;
 
-    const newTransaction = await tx.transaction.create({
-      data: {
-        userId,
-        type: "earn",
-        amount: awardPoints,
-        balance: updatedUser.points,
-        source: "dwell",
-        metadata: {
-          source: "dwell",
-          url: dwellSession.url,
-          siteName: dwellSession.siteName,
-          elapsedSeconds: clampedElapsed,
-          maxPoints: dwellSession.maxPoints,
+      // 세션 원자적 클레임: completedAt IS NULL 조건으로 중복 완료 방지
+      const sessionClaim = await tx.dwellSession.updateMany({
+        where: { token, completedAt: null },
+        data: { completedAt: now },
+      });
+      if (sessionClaim.count === 0) {
+        throw new Error("SESSION_ALREADY_COMPLETED");
+      }
+
+      // 24시간 내 중복 URL 방문 확인 (트랜잭션 내 재검증)
+      const recentTxns = await tx.transaction.findMany({
+        where: {
+          userId,
+          type: "earn",
+          createdAt: { gte: windowStart },
+          source: { in: ["intent_reward", "dwell"] },
         },
-      },
-    });
+        select: { metadata: true },
+      });
 
-    await tx.dwellSession.update({
-      where: { token },
-      data: { completedAt: now, awarded: awardPoints },
-    });
+      const alreadyVisited = recentTxns.some((txn) => {
+        const meta = txn.metadata as { url?: string } | null;
+        return meta?.url === dwellSession.url;
+      });
 
-    return [updatedUser, newTransaction] as const;
-  });
+      if (alreadyVisited) {
+        await tx.dwellSession.update({ where: { token }, data: { awarded: 0 } });
+        throw new Error("URL_ALREADY_VISITED");
+      }
+
+      // 일일 체류 포인트 한도 확인 (트랜잭션 내 재검증 — FOR UPDATE 락으로 원자성 보장)
+      const todayAggregate = await tx.transaction.aggregate({
+        where: {
+          userId,
+          type: "earn",
+          source: "dwell",
+          createdAt: { gte: todayStart },
+        },
+        _sum: { amount: true },
+      });
+
+      const todayPoints = todayAggregate._sum.amount ?? 0;
+      if (todayPoints >= DAILY_MAX_POINTS) {
+        await tx.dwellSession.update({ where: { token }, data: { awarded: 0 } });
+        throw new Error("DAILY_CAP_REACHED");
+      }
+
+      // 남은 일일 한도에 맞게 지급 포인트 조정
+      const actualAward = Math.min(awardPoints, DAILY_MAX_POINTS - todayPoints);
+
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { points: { increment: actualAward } },
+      });
+
+      const newTransaction = await tx.transaction.create({
+        data: {
+          userId,
+          type: "earn",
+          amount: actualAward,
+          balance: updatedUser.points,
+          source: "dwell",
+          metadata: {
+            source: "dwell",
+            url: dwellSession.url,
+            siteName: dwellSession.siteName,
+            elapsedSeconds: clampedElapsed,
+            maxPoints: dwellSession.maxPoints,
+            campaignId: dwellSession.campaignId ?? undefined,
+          },
+        },
+      });
+
+      // 연결된 캠페인이 있으면 예산 차감
+      if (dwellSession.campaignId) {
+        const freshCampaign = await tx.campaign.findUnique({
+          where: { id: dwellSession.campaignId },
+          select: { spent: true, budget: true },
+        });
+        if (freshCampaign) {
+          const newSpent = freshCampaign.spent + actualAward;
+          await tx.campaign.update({
+            where: { id: dwellSession.campaignId },
+            data: {
+              spent: { increment: actualAward },
+              ...(newSpent >= freshCampaign.budget ? { status: "completed" } : {}),
+            },
+          });
+        }
+      }
+
+      await tx.dwellSession.update({
+        where: { token },
+        data: { awarded: actualAward },
+      });
+
+      return {
+        points: actualAward,
+        totalPoints: updatedUser.points,
+        transactionId: newTransaction.id,
+      };
+    });
+  } catch (e) {
+    if (e instanceof Error) {
+      if (e.message === "SESSION_ALREADY_COMPLETED") {
+        return NextResponse.json(
+          { error: "이미 완료된 세션입니다." },
+          { status: 409 }
+        );
+      }
+      if (e.message === "URL_ALREADY_VISITED") {
+        return NextResponse.json(
+          { error: "이미 24시간 내에 방문한 사이트입니다." },
+          { status: 409 }
+        );
+      }
+      if (e.message === "DAILY_CAP_REACHED") {
+        return NextResponse.json(
+          { error: "일일 체류 포인트 한도(1,000P)에 도달했습니다." },
+          { status: 429 }
+        );
+      }
+    }
+    throw e;
+  }
 
   await invalidateCache(CacheKeys.balance(userId), CacheKeys.dailyStats(userId));
 
   return NextResponse.json({
     success: true,
-    points: awardPoints,
-    totalPoints: user.points,
-    transactionId: transaction.id,
+    points: txResult.points,
+    totalPoints: txResult.totalPoints,
+    transactionId: txResult.transactionId,
     elapsedSeconds: clampedElapsed,
   });
 }
