@@ -74,6 +74,7 @@ export class IntentService {
 
     const where = {
       userId,
+      deletedAt: null, // 소프트 삭제된 의도 제외
       ...(category && { category }),
       ...(status && { status }),
     };
@@ -105,8 +106,10 @@ export class IntentService {
   }
 
   static async deleteIntent(intentId: string, userId: string) {
-    return prisma.intent.deleteMany({
-      where: { id: intentId, userId },
+    // 소프트 삭제: DB 레코드 유지, deletedAt만 기록
+    return prisma.intent.updateMany({
+      where: { id: intentId, userId, deletedAt: null },
+      data: { deletedAt: new Date() },
     });
   }
 }

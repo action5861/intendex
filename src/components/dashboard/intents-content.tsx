@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Lightbulb,
   CheckCircle2,
@@ -18,7 +19,9 @@ import {
   Loader2,
   Target,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { INTENT_CATEGORIES } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -38,6 +41,7 @@ export function IntentsContent() {
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [activeStatus, setActiveStatus] = useState<string>("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchIntents = useCallback(async () => {
     setLoading(true);
@@ -50,6 +54,30 @@ export function IntentsContent() {
     setIntents(data.intents || []);
     setLoading(false);
   }, [activeCategory, activeStatus]);
+
+  const handleDelete = useCallback(async (intentId: string, keyword: string) => {
+    if (!confirm(`"${keyword}" 검색 의도를 삭제하시겠습니까?`)) return;
+
+    setDeletingId(intentId);
+    try {
+      const res = await fetch("/api/intents", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intentId }),
+      });
+      if (res.ok) {
+        setIntents((prev) => prev.filter((i) => i.id !== intentId));
+        toast.success(`"${keyword}" 의도가 삭제되었습니다.`);
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "삭제에 실패했습니다.");
+      }
+    } catch {
+      toast.error("네트워크 오류가 발생했습니다.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -158,7 +186,21 @@ export function IntentsContent() {
                           </Badge>
                         )}
                       </div>
-                      <StatusIcon status={intent.status} />
+                      <div className="flex items-center gap-2">
+                        <StatusIcon status={intent.status} />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                          onClick={() => handleDelete(intent.id, intent.keyword)}
+                          disabled={deletingId === intent.id}
+                          title="삭제"
+                        >
+                          {deletingId === intent.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
                     </div>
                     <CardTitle className="text-[17px] font-bold leading-tight text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                       {intent.keyword}

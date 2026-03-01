@@ -25,3 +25,32 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(result);
 }
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { intentId: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const { intentId } = body;
+  if (!intentId) {
+    return NextResponse.json({ error: "intentId is required" }, { status: 400 });
+  }
+
+  const result = await IntentService.deleteIntent(intentId, session.user.id);
+  if (result.count === 0) {
+    return NextResponse.json(
+      { error: "의도를 찾을 수 없거나 이미 삭제되었습니다." },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json({ success: true });
+}

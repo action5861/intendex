@@ -33,6 +33,7 @@ export async function GET(
           isCommercial: true,
           status: true,
           createdAt: true,
+          deletedAt: true,
           _count: { select: { matches: true } },
         },
         orderBy: { createdAt: "desc" },

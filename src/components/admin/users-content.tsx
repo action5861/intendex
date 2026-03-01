@@ -40,6 +40,7 @@ interface UserDetail extends UserItem {
     isCommercial: boolean;
     status: string;
     createdAt: string;
+    deletedAt: string | null;
     _count: { matches: number };
   }[];
   transactions: {
@@ -390,19 +391,21 @@ export function UsersContent() {
                       <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto custom-scrollbar">
                         {selectedUser.intents.map((intent) => {
                           const matched = intent._count.matches > 0;
+                          const deleted = !!intent.deletedAt;
                           return (
                             <div
                               key={intent.id}
-                              className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center px-3 py-2.5 gap-2 text-[13px] hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors"
+                              className={`grid grid-cols-[1fr_auto_auto_auto_auto] items-center px-3 py-2.5 gap-2 text-[13px] hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors ${deleted ? "opacity-50" : ""}`}
                             >
                               <div className="min-w-0">
-                                <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                <p className={`font-semibold truncate ${deleted ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-800 dark:text-slate-200"}`}>
                                   {intent.keyword}
                                 </p>
-                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
                                   {intent.category}
-                                  {!intent.isCommercial && (
-                                    <span className="ml-1 text-slate-400">(비상업)</span>
+                                  {!intent.isCommercial && <span>(비상업)</span>}
+                                  {deleted && (
+                                    <span className="text-rose-400 font-semibold">· 사용자 삭제</span>
                                   )}
                                 </p>
                               </div>
@@ -413,7 +416,11 @@ export function UsersContent() {
                                 {intent.pointValue > 0 ? `${intent.pointValue}P` : "—"}
                               </span>
                               <span className="w-16 flex justify-center">
-                                {matched ? (
+                                {deleted ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                                    삭제됨
+                                  </span>
+                                ) : matched ? (
                                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">
                                     <CheckCircle2 className="w-3 h-3" />
                                     성공
